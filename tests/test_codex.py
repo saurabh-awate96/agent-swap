@@ -155,7 +155,8 @@ def test_round_trip_is_byte_exact_and_private(env):
     assert env.live_bytes() == b
     assert sw.switch("a@example.com") == (1, True)
     assert env.live_bytes() == a
-    assert env.live.stat().st_mode & 0o777 == 0o600
+    if sys.platform != "win32":  # NTFS has no POSIX mode bits
+        assert env.live.stat().st_mode & 0o777 == 0o600
     assert sw._read_blob(1) == a and sw._read_blob(2) == b
     assert json.loads(sw.seq.read_text())["activeAccountNumber"] == 1
 
