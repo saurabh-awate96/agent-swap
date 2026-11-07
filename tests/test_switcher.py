@@ -76,6 +76,14 @@ class TestEmailValidation:
         for email in invalid_emails:
             assert not switcher._validate_email(email), f"Expected {email} to be invalid"
 
+    def test_trailing_newline_is_rejected(self, temp_home: Path):
+        # `$` matches before a final "\n", so a match-based check accepted this.
+        # The address is interpolated into a `security -i` command line and a
+        # filename, where a newline splits the command.
+        switcher = ClaudeAccountSwitcher()
+        assert not switcher._validate_email("user@example.com\n")
+        assert not switcher._validate_email("user@example.com\r\n")
+
 
 class TestFindAccountSlot:
     """Test the (email, organizationUuid) -> slot composite-key lookup."""
@@ -5594,6 +5602,29 @@ class TestPurgeQuarantineWarning:
 
         assert "history-conflicts" not in capsys.readouterr().out
 
+    def test_purge_drops_each_slots_retained_previous_generation(
+        self, temp_home: Path
+    ):
+        """Every backup write keeps the old generation as a `.prev` item, which
+        holds the previous access/refresh tokens. Purge deleted the live item
+        by name and never the `.prev` one, so "Purge complete" left tokens in
+        the login keychain."""
+        switcher = ClaudeAccountSwitcher()
+        switcher._setup_directories()
+        switcher._init_sequence_file()
+        data = switcher._get_sequence_data()
+        data["accounts"]["1"] = {"email": "a@example.com"}
+        data["sequence"] = [1]
+        switcher._write_json(switcher.sequence_file, data)
+
+        with patch.object(switcher._store, "delete_previous_backup") as drop, \
+                patch("builtins.input", return_value="y"):
+            switcher.purge()
+
+        dropped = {call.args for call in drop.call_args_list}
+        assert ("1", "a@example.com") in dropped
+        assert ("None", "a@example.com") in dropped
+
     def test_purge_still_removes_the_quarantine_tree(self, temp_home: Path):
         """The warning is the fix, not a behavior change: purge is the user's
         "remove everything" hammer and still removes everything."""
@@ -9567,6 +9598,62 @@ class TestDisableEnableAccount:
         out = capsys.readouterr().out
         assert "Skipping Account-2 (disabled)" in out
         assert s._get_sequence_data()["activeAccountNumber"] == 3
+
+    def _lock_that_lets_a_switch_land_first(self, s, monkeypatch):
+        """Stand in for FileLock: on entry, behave as if a switch finished
+        just before we got the lock (it moved the active pointer to 3).
+        Returns the list of entries so a test can assert the lock was taken."""
+        entered = []
+
+        class LockAfterSwitch:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                entered.append(True)
+                data = s._get_sequence_data()
+                data["activeAccountNumber"] = 3
+                s._write_json(s.sequence_file, data)
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        monkeypatch.setattr("claude_swap.switcher.FileLock", LockAfterSwitch)
+        return entered
+
+    def test_disable_reads_under_the_switch_lock(self, temp_home, monkeypatch):
+        """A `disable` read sequence.json before the lock, so a switch landing
+        in between had its active-account pointer (or the disable itself)
+        overwritten by whichever wrote second with the older copy."""
+        s = self._setup(temp_home)
+        for n, e in ((1, "a@example.com"), (2, "b@example.com"), (3, "c@example.com")):
+            self._seed(s, n, e)
+        entered = self._lock_that_lets_a_switch_land_first(s, monkeypatch)
+
+        s.set_account_disabled("2", True)
+
+        data = s._get_sequence_data()
+        assert entered, "the setter never took the switch lock"
+        assert data["accounts"]["2"].get("disabled") is True
+        assert data["activeAccountNumber"] == 3  # the switch's write survived
+
+    def test_remove_does_not_write_back_a_stale_active_pointer(
+        self, temp_home, monkeypatch
+    ):
+        """`cswap remove` reads sequence.json, waits at a y/n prompt, then
+        wrote that old copy back -- reverting a switch made meanwhile."""
+        s = self._setup(temp_home)
+        for n, e in ((1, "a@example.com"), (2, "b@example.com"), (3, "c@example.com")):
+            self._seed(s, n, e)
+        entered = self._lock_that_lets_a_switch_land_first(s, monkeypatch)
+
+        s.remove_account("2", assume_yes=True)
+
+        data = s._get_sequence_data()
+        assert entered, "remove never took the switch lock"
+        assert "2" not in data["accounts"]
+        assert data["activeAccountNumber"] == 3
 
     def test_rotation_skips_slot_with_dead_refresh_token(self, temp_home, capsys):
         """active=1, slot 2 struck as refresh-token-dead — bare switch lands on 3.

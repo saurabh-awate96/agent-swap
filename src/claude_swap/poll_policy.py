@@ -233,16 +233,13 @@ def plan_after_fetch(
     prev_pct = binding_pct(prev_usage, models)
     new_pct = binding_pct(new_usage, models)
     if prev_pct is None or new_pct is None:
-        moving = False
         interval = default
     elif abs(new_pct - prev_pct) >= MOVEMENT_DELTA_PCT:
-        moving = True
         interval = max(MIN_INTERVAL_S, base / 2)
     else:
         # Floored so a sub-floor base (urgent mode's 60s) snaps straight back
         # to the normal cadence once movement stops, instead of decaying
         # through 90s/135s polls that the budget never intended.
-        moving = False
         interval = min(ceiling, max(MIN_INTERVAL_S, base * 1.5))
     # Per window, by label, rising only: the window that matters for a switch
     # may not be the max (5h climbing under a flat higher 7d), and a window

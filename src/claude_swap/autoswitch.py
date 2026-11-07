@@ -1595,7 +1595,7 @@ class AutoSwitchEngine:
             if self.dry_run:
                 # Dry-run stops at the decision: no token refresh, no
                 # quarantine writes — freshening is a mutation.
-                return self._perform(num, email, trigger, left_snapshot)
+                return self._perform(num, email, trigger, left_snapshot, current)
             status = self._freshen_target(num, email)
             if status == "identity-conflict":
                 # The slot's credential is alive but belongs to a different
@@ -1626,7 +1626,7 @@ class AutoSwitchEngine:
                 continue
             if status == "skip-live-session":
                 continue
-            return self._perform(num, email, trigger, left_snapshot)
+            return self._perform(num, email, trigger, left_snapshot, current)
 
         if systemic or transient_failure:
             self._emit(
@@ -2467,6 +2467,7 @@ class AutoSwitchEngine:
         email: str,
         trigger: str,
         left: tuple[float | None, float],
+        expected_current: str | None,
     ) -> TickOutcome:
         if self.dry_run:
             current = self.switcher.current_account_number()
@@ -2488,6 +2489,20 @@ class AutoSwitchEngine:
         # switch path (cswap FileLock + Claude Code locks) never takes the
         # state lock.
         with self._state_lock():
+            # The decision was made on the account read at the top of the tick,
+            # and collecting usage plus freshening the target can take many
+            # seconds. A manual `cswap switch` (menubar click, another
+            # terminal) takes no state lock, so it can land in that gap — and
+            # applying the stale decision would move the user off the account
+            # they just chose, onto one picked for the account they left.
+            if self.switcher.current_account_number() != expected_current:
+                self._emit(
+                    NoSwitchEvent(
+                        reason="active-changed",
+                        detail="the active account changed since this tick began",
+                    )
+                )
+                return TickOutcome.NO_ACTION
             state = self._read_state()
             if trigger in ("proactive", "consume-first", "priority") and self._in_cooldown(state):
                 self._emit(NoSwitchEvent(reason="cooldown"))

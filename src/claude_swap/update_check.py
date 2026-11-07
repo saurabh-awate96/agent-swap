@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tomllib
@@ -153,7 +154,11 @@ def _uv_latest_version(current_version: str, cooldown: _Cooldown | None) -> str 
     whatever project the shell happens to be in. ``uv tool upgrade`` does
     not, so a project's own cutoff must not hide releases from this check.
     """
-    cmd = ["uv", "pip", "list", "--outdated", "--format", "json", "--python", sys.executable]
+    uv = shutil.which("uv")
+    # On Windows which also searches the current directory, and a hit there comes back relative.
+    if uv is None or not os.path.isabs(uv):
+        raise FileNotFoundError("uv")
+    cmd = [uv, "pip", "list", "--outdated", "--format", "json", "--python", sys.executable]
     if cooldown is not None:
         cmd += ["--exclude-newer", cooldown.value]
     env = {k: v for k, v in os.environ.items() if k != "UV_EXCLUDE_NEWER"}

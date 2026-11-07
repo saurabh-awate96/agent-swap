@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import json
-import logging
 import os
 import re
 import shutil
@@ -76,7 +76,6 @@ from claude_swap.printer import (
     bolded,
     dimmed,
     entrypoint_label,
-    error,
     format_age,
     ide_short_name,
     muted,
@@ -138,6 +137,26 @@ _LOCKSTEP_RESET_TOLERANCE_S = 5.0
 # serve TTL the data is current by design (that is the polling cadence), so
 # an age note there would be permanent noise.
 _USAGE_AGE_NOTE_S = poll_policy.SERVE_TTL_S
+
+
+def _under_account_lock(method):
+    """Run a ``sequence.json`` read-modify-write under the switch lock.
+
+    ``_perform_switch`` reads and writes this file inside ``self.lock_file``.
+    A setter that read it outside that lock could land in the middle of a
+    switch and have its change overwritten by the switch's older copy (a
+    `disable` that auto-switch then ignores), or write back a stale active-
+    account pointer. Every decorated method must read ``sequence.json`` inside
+    its own body, i.e. after the lock is taken, and must not call another
+    method that takes ``lock_file`` (the lock is not reentrant).
+    """
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with FileLock(self.lock_file):
+            return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 def _pace_marker(window: dict, fetched_at: float | None) -> str:
@@ -472,8 +491,11 @@ class ClaudeAccountSwitcher:
 
     def _validate_email(self, email: str) -> bool:
         """Validate email format."""
-        pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-        return bool(re.match(pattern, email))
+        pattern = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+        # fullmatch, not `^...$`: `$` also matches before a trailing "\n", and
+        # an email with a newline in it splits the `security -i` command line
+        # it is interpolated into and lands in a filename.
+        return bool(re.fullmatch(pattern, email))
 
     def _setup_directories(self) -> None:
         """Create backup directories with proper permissions."""
@@ -1009,6 +1031,7 @@ class ClaudeAccountSwitcher:
             record.get("organizationUuid", "") or "",
         )
 
+    @_under_account_lock
     def set_alias(self, identifier: str, alias: str) -> tuple[str, str]:
         """Set (or rename) the alias for the account matching identifier.
 
@@ -1047,6 +1070,7 @@ class ClaudeAccountSwitcher:
         self._write_json(self.sequence_file, data)
         return account_num, normalized
 
+    @_under_account_lock
     def unset_alias(self, identifier: str) -> str:
         """Clear the alias for the account matching identifier.
 
@@ -2161,6 +2185,7 @@ class ClaudeAccountSwitcher:
             raise AccountNotFoundError(f"Account-{account_num} does not exist")
         return account_num, email, data, record
 
+    @_under_account_lock
     def set_account_threshold(self, identifier: str, threshold: object | None) -> None:
         """Set or clear one account's own switch-away threshold.
 
@@ -2224,6 +2249,7 @@ class ClaudeAccountSwitcher:
             print(f"{accent('Set')} Account-{account_num} ({email}) "
                   f"threshold to {normalized:g}%.")
 
+    @_under_account_lock
     def set_account_priority(self, identifier: str, priority: object | None) -> None:
         """Set a priority tier, or remove it with None/0. Validate before writing."""
         normalized = 0 if priority is None else normalize_account_priority(priority)
@@ -2240,6 +2266,7 @@ class ClaudeAccountSwitcher:
         print(f"Account-{account_num} ({email}) priority: {normalized} "
               "(used by priority-consume-first).")
 
+    @_under_account_lock
     def set_account_disabled(self, identifier: str, disabled: bool) -> None:
         """Hold an account out of rotation (``disabled=True``) or return it.
 
@@ -4533,12 +4560,16 @@ class ClaudeAccountSwitcher:
         # Remove backup files
         self._delete_account_files(account_num, email)
 
-        # Update sequence.json
-        del data["accounts"][account_num]
-        data["sequence"] = [n for n in data["sequence"] if n != int(account_num)]
-        data["lastUpdated"] = get_timestamp()
-
-        self._write_json(self.sequence_file, data)
+        # Update sequence.json. `data` was read before the confirmation prompt
+        # (and before the file deletion above), so writing it back would undo
+        # whatever a switch changed meanwhile -- notably the active-account
+        # pointer. Re-read under the switch lock and drop only this slot.
+        with FileLock(self.lock_file):
+            data = self._get_sequence_data() or data
+            data["accounts"].pop(account_num, None)
+            data["sequence"] = [n for n in data["sequence"] if n != int(account_num)]
+            data["lastUpdated"] = get_timestamp()
+            self._write_json(self.sequence_file, data)
         self._logger.info(f"Removed account {account_num}: {email}")
         print(f"{accent('Removed')} Account-{account_num} ({email})")
 
@@ -8055,6 +8086,12 @@ class ClaudeAccountSwitcher:
                             removed_items.append(f"Credential: {username}")
                         except Exception:
                             pass  # Ignore errors during purge
+
+                # Every backup write retains the previous generation as a
+                # `.prev` item (plus its `.enc.prev` file), holding the old
+                # access/refresh tokens. Best-effort inside, never raises.
+                for num in nums:
+                    self._store.delete_previous_backup(num, email)
 
                 # Items the legacy ``keyring`` library stored (service
                 # ``claude-code``) that the keyring → security migration left

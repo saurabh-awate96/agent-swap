@@ -14,10 +14,17 @@ from claude_swap.update_check import (
     FAILURE_TTL,
     _detect_install_method,
     _installed_version_on_disk,
+    _uv_latest_version,
     check_for_update,
     held_back_release_notice,
     run_self_upgrade,
 )
+
+
+@pytest.fixture(autouse=True)
+def _uv_on_path(monkeypatch):
+    # uv is run by the absolute path shutil.which resolves, so tests must not depend on a real uv.
+    monkeypatch.setattr("claude_swap.update_check.shutil.which", lambda name: "/usr/bin/uv")
 
 
 def _make_pypi_response(version: str) -> MagicMock:
@@ -362,7 +369,7 @@ class TestUvInstall(_UvInstall):
         assert "(0.28.0)" in result
         assert "cswap upgrade" in result
         cmd = self._uv_command(mock_run)
-        assert cmd[:5] == ["uv", "pip", "list", "--outdated", "--format"]
+        assert cmd[:5] == ["/usr/bin/uv", "pip", "list", "--outdated", "--format"]
         assert cmd[-2:] == ["--exclude-newer", "P14D"]
         mock_urlopen.assert_not_called()
 
@@ -447,6 +454,24 @@ class TestUvInstall(_UvInstall):
         mock_run.side_effect = None
         mock_run.return_value = _uv_pip_list(_OUTDATED)
         assert check_for_update("0.27.2") is not None
+
+    @patch("claude_swap.update_check.shutil.which", return_value="/opt/uv/bin/uv")
+    @patch("claude_swap.update_check.subprocess.run")
+    def test_uv_runs_by_the_path_which_resolved(self, mock_run, mock_which):
+        # A bare "uv" would let Windows pick up a uv.exe in the current directory.
+        mock_run.return_value = _uv_pip_list(_OUTDATED)
+
+        _uv_latest_version("0.27.2", None)
+
+        assert mock_run.call_args.args[0][0] == "/opt/uv/bin/uv"
+
+    @patch("claude_swap.update_check.shutil.which", return_value="uv.exe")
+    @patch("claude_swap.update_check.subprocess.run")
+    def test_uv_found_only_as_a_relative_path_is_not_run(self, mock_run, mock_which):
+        # which hands back a relative path for a hit in the current directory.
+        with pytest.raises(FileNotFoundError):
+            _uv_latest_version("0.27.2", None)
+        mock_run.assert_not_called()
 
     @patch("claude_swap.update_check.subprocess.run")
     def test_uv_network_failure_with_cooldown_backs_off_for_an_hour(self, mock_run, tmp_path):
@@ -618,7 +643,7 @@ class TestHeldBackReleaseNotice(_UvInstall):
         assert 'uv tool upgrade claude-swap --exclude-newer "0 days"' in out
         upgrade, listing = (c.args[0] for c in mock_run.call_args_list)
         assert upgrade == ["uv", "tool", "upgrade", "claude-swap"]
-        assert listing[:4] == ["uv", "pip", "list", "--outdated"]
+        assert listing[:4] == ["/usr/bin/uv", "pip", "list", "--outdated"]
 
     @patch("claude_swap.update_check.subprocess.run")
     def test_failed_uv_upgrade_gets_no_notice(self, mock_run, tmp_path, capsys):
@@ -657,7 +682,7 @@ class TestHeldBackReleaseNotice(_UvInstall):
         out = capsys.readouterr().out
         assert "uv tool upgrade claude-swap" in out
         assert "is on PyPI" in out
-        assert self._uv_command(mock_run)[:4] == ["uv", "pip", "list", "--outdated"]
+        assert self._uv_command(mock_run)[:4] == ["/usr/bin/uv", "pip", "list", "--outdated"]
 
 
 @patch("claude_swap.update_check.sys.platform", "linux")

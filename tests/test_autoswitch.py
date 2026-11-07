@@ -494,6 +494,29 @@ class TestDecisionTable:
         })
         assert outcome is TickOutcome.SWITCHED
 
+    def test_manual_switch_during_the_tick_is_not_overridden(self, harness):
+        # The engine decides "leave 1 for 2" on the account it read at the top
+        # of the tick; freshening the target takes seconds. A manual
+        # `cswap switch` in that gap takes no state lock, so the stale decision
+        # used to be applied anyway, moving the user off the account they had
+        # just chosen (3) onto one picked for the account they had left (1).
+        def user_switches_to_3(num, email):
+            harness.make_live("c@example.com", 3)
+            return "ok"
+
+        with patch.object(
+            harness.engine, "_freshen_target", side_effect=user_switches_to_3
+        ):
+            outcome = harness.tick_with_usage({
+                "1": _usage(95), "2": _usage(10), "3": _usage(50),
+            })
+
+        assert outcome is TickOutcome.NO_ACTION
+        assert [e.reason for e in harness.events if isinstance(e, NoSwitchEvent)] == [
+            "active-changed"
+        ]
+        assert harness.switcher.current_account_number() == "3"
+
     def test_cooldown_expires(self, harness):
         harness.engine._mutate_state(
             lambda s: s.update(lastSwitchAt=harness.clock())
