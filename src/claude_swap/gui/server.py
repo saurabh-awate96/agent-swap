@@ -98,6 +98,21 @@ class GuiServer(ThreadingHTTPServer):
             self._codex = Codex()
         return self._codex
 
+    def unsaved_claude(self) -> dict | None:
+        """The login Claude Code is using now, when cswap has not saved it.
+
+        Only the address: it comes from ``.claude.json`` (no keychain read, no
+        network), so the page can say "this one is not saved yet" instead of
+        looking empty.
+        """
+        try:
+            live = self.switcher._get_current_identity_triple()
+            if live is None or self.switcher._account_exists(live[0], live[1]):
+                return None
+        except (ClaudeSwitchError, OSError):
+            return None
+        return {"email": live[0], "isOrganization": bool(live[1])}
+
     def codex_payload(self) -> dict:
         """Codex accounts, cached briefly. A Codex problem (keyring mode, a torn
         roster) is reported beside an empty list so it cannot blank the Claude half."""
@@ -107,7 +122,13 @@ class GuiServer(ThreadingHTTPServer):
             return cached[1]
         try:
             # Reading must not write: persist only when changes are allowed.
-            payload = {"accounts": self.codex().rows(persist=self.write)}
+            cx = self.codex()
+            payload = {"accounts": cx.rows(persist=self.write)}
+            live = cx.status()
+            payload["unsaved"] = (
+                {k: live[k] for k in ("email", "plan", "authMode")}
+                if live["state"] == "unmanaged" else None
+            )
         except ClaudeSwitchError as e:
             payload = {"accounts": [], "error": str(e)}
         payload["schemaVersion"] = SCHEMA_VERSION
@@ -221,10 +242,9 @@ class _Handler(BaseHTTPRequestHandler):
         elif path == "/api/accounts":
             # The page polls on a timer: unattended, so it never refreshes an idle
             # account's token (same rule as the terminal dashboard).
-            self._json(
-                200,
-                self.server.switcher.list_accounts(json_output=True, refresh_idle=False),
-            )
+            payload = self.server.switcher.list_accounts(json_output=True, refresh_idle=False)
+            payload["unsaved"] = self.server.unsaved_claude()
+            self._json(200, payload)
         elif path == "/api/codex":
             self._json(200, self.server.codex_payload())
         else:

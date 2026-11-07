@@ -15,6 +15,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 - **`autoswitch.keepalive`** (off by default): one tiny real `claude` request per idle account, at most every 8 hours, so its login and usage stay warm without cswap calling the token endpoint.
 - [docs/safety.md](docs/safety.md), [SECURITY.md](SECURITY.md), this changelog.
 
+- The web dashboard shows the login you are using right now when it is not saved yet (Claude and Codex), instead of looking empty.
+
 ### Changed
 
 - **Idle accounts are no longer refreshed in the background.** A lapsed idle token shows as "token expired" and is refreshed on demand (`cswap list`, `cswap switch`), or when auto-switch must leave the active account and no candidate has readable usage.
@@ -24,6 +26,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 
 ### Fixed
 
+- Codex usage: the newest reading is found even when a long session ends in one huge line (the scan used to read only the last 256 KB and silently fell back to an older session's number). A window that reset since the last reading shows as unknown in the web dashboard, not 0%, and the last-seen line says the numbers cover this machine only.
 - A rotated refresh token survives a malformed refresh response; a non-numeric `expires_in` falls back to an hour.
 - Auto-switch no longer overrides a manual switch made while it was deciding, and sequence.json writes take a lock.
 - `cswap run` refuses to re-seed the profile of a live session; manual rotation skips accounts whose token is dead.

@@ -81,10 +81,10 @@ function bar(pct, line) {
   return box;
 }
 
-function usageRow(label, pct, suffix, line, dim) {
+function usageRow(label, pct, suffix, line, dim, unknown) {
   const row = el("div", null, "row" + (dim ? " dim" : ""));
   row.append(el("span", label, "label"), bar(pct, line));
-  row.append(pct == null ? el("span", "usage unknown", "muted")
+  row.append(pct == null ? el("span", unknown || "usage unknown", "muted")
                          : el("span", pct.toFixed(0) + "%", "pct " + sev(pct)));
   if (suffix) row.append(el("span", suffix, "muted"));
   return row;
@@ -108,6 +108,24 @@ function header(num, alias, email, tag, active) {
   if (tag) head.append(el("span", "[" + tag + "]", "badge"));
   if (active) head.append(el("span", "● active", "on"));
   return head;
+}
+
+// The login the CLI is using right now, when cswap has not saved it.
+function unsavedCard(u, kind) {
+  const card = el("div", null, "acct");
+  const head = header("·", null, u.email, "not saved", false);
+  if (u.plan) head.append(el("span", "· " + u.plan, "badge"));
+  card.append(head);
+  card.append(el("div", "· logged in now, but not saved in cswap yet", "note muted"));
+  if (settings && settings.writable) {
+    const acts = el("div", null, "acts");
+    acts.append(button("save", () => act(kind === "codex" ? "/api/codex/add-current" : "/api/add-current", {})));
+    card.append(acts);
+  } else {
+    const cmd = kind === "codex" ? "cswap codex add" : "cswap add";
+    card.append(el("div", "save it with: " + cmd + "  (or start the dashboard with: cswap gui --write)", "note muted"));
+  }
+  return card;
 }
 
 function claudeCard(a) {
@@ -155,17 +173,19 @@ function codexCard(a) {
   } else if (!u) {
     card.append(el("div", "no usage seen yet (it appears after you use Codex)", "note muted"));
   } else {
-    // Local snapshots, so they are always shown as aged readings.
+    // Local snapshots, so they are always shown as aged readings. A window that
+    // has reset since the reading is unknown (use elsewhere is not in the
+    // local files), not 0%.
     const win = (w, label) => {
       if (!w) return;
       const resetMs = w.resets_at * 1000;
-      const done = resetMs <= now;
-      card.append(usageRow(label, done ? 0 : w.used_percent, done ? "reset" : resetText(resetMs), null, true));
+      if (resetMs <= now) card.append(usageRow(label, null, "", null, true, "reset since last seen"));
+      else card.append(usageRow(label, w.used_percent, resetText(resetMs), null, true));
     };
     win(u.primary, "5h");
     win(u.secondary, "7d");
     const seen = Date.parse(u.seenAt);
-    if (!isNaN(seen)) card.append(el("div", "└ last seen " + age((now - seen) / 1000), "note muted"));
+    if (!isNaN(seen)) card.append(el("div", "└ last seen " + age((now - seen) / 1000) + " · this machine only", "note muted"));
   }
   if (settings && settings.writable) {
     const acts = el("div", null, "acts");
@@ -178,13 +198,17 @@ function codexCard(a) {
 function render() {
   if (claude) {
     const main = $("accounts");
-    main.replaceChildren(...claude.accounts.map(claudeCard));
-    if (!claude.accounts.length) main.append(el("p", "No accounts yet. Run cswap onboard in a terminal.", "muted"));
+    const cards = claude.accounts.map(claudeCard);
+    if (claude.unsaved) cards.unshift(unsavedCard(claude.unsaved, "claude"));
+    main.replaceChildren(...cards);
+    if (!cards.length) main.append(el("p", "No accounts yet. Run cswap onboard in a terminal.", "muted"));
   }
-  if (codex && (codex.accounts.length || codex.error || (settings.writable && codex.installed))) {
+  if (codex && (codex.accounts.length || codex.unsaved || codex.error || (settings.writable && codex.installed))) {
     $("codex").hidden = false;
     $("codex-note").textContent = codex.error || "";
-    $("codex-accounts").replaceChildren(...codex.accounts.map(codexCard));
+    const cards = codex.accounts.map(codexCard);
+    if (codex.unsaved) cards.unshift(unsavedCard(codex.unsaved, "codex"));
+    $("codex-accounts").replaceChildren(...cards);
   }
 }
 

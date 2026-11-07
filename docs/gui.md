@@ -29,6 +29,10 @@ A small server from the standard library (`http.server`, no new dependency) plus
 
 Writes carry only a slot **number**, validated as digits; they never carry an email, a path or a command. Only one write runs at a time. No endpoint returns a token or credential: the page receives emails, aliases, plans and percentages.
 
+## Logins that are not saved yet
+
+If the login Claude Code (or Codex) is using is not stored in cswap, the page lists it first, marked `[not saved]`, with its address (and plan, for Codex) only. With `--write` it has a **save** button; read-only it says which command to run. For Claude this comes from `.claude.json`, for Codex from `auth.json`: no keychain read and no network.
+
 ## In the browser
 
 The page refreshes on a timer, so like the terminal dashboard it never refreshes an idle account's token: a lapsed one shows as "token expired" until you use that account or run `cswap list`.

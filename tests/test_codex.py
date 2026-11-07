@@ -675,6 +675,36 @@ def test_usage_ignores_null_premium_legacy_and_torn_lines(env):
     assert u[2] is None  # the unattributed legacy rollout is not guessed onto anyone
 
 
+def _append_huge_line(path, kb=400):
+    """A tool output bigger than the old 256 KB tail window, after the last reading."""
+    big = json.dumps({"timestamp": "2026-11-05T12:30:00.000Z", "type": "response_item",
+                      "payload": {"output": "x" * kb * 1024}})
+    with path.open("a") as fh:
+        fh.write(big + "\n")
+
+
+def test_the_newest_reading_is_found_behind_a_huge_trailing_line(env):
+    """Regression: a long session whose file ends in one oversized line yielded
+    nothing, and the scan silently fell back to an OLDER session's lower number."""
+    sw = two_accounts(env)
+    rollout(env, "old", ("user-A", "acct-A"), [("2026-11-05T09:30:00.000Z", limits(window(90), window(33, 10080)))])
+    new = rollout(env, "new", ("user-A", "acct-A"), [("2026-11-05T11:00:00.000Z", limits(window(8), window(35, 10080)))])
+    _append_huge_line(new)
+    import os, time
+    os.utime(new, (time.time() + 10, time.time() + 10))  # "new" is the most recently written
+    u = usage_by_slot(sw)[1]
+    assert u["primary"]["used_percent"] == 8 and u["secondary"]["used_percent"] == 35
+    assert u["seenAt"] == "2026-11-05T11:00:00.000Z"
+
+
+def test_the_backwards_scan_gives_up_after_its_budget(env, monkeypatch):
+    sw = two_accounts(env)
+    path = rollout(env, "a", ("user-A", "acct-A"), [("2026-11-05T10:00:00.000Z", limits(window(30), None))])
+    _append_huge_line(path)
+    monkeypatch.setattr(codex, "_MAX_SCAN", 100 * 1024)
+    assert usage_by_slot(sw)[1] is None  # the documented limit, not a crash
+
+
 def test_usage_survives_rollout_rotation_and_stores_only_numbers(env):
     sw = two_accounts(env)
     path = rollout(env, "a", ("user-A", "acct-A"), [("2026-11-05T10:00:00.000Z", limits(window(42), None))])
