@@ -93,7 +93,7 @@ class Env:
         self.live = home / "auth.json"
 
     def login(self, text: str) -> bytes:
-        self.live.write_text(text, encoding="utf-8")
+        self.live.write_text(text, encoding="utf-8", newline="")
         self.live.chmod(0o600)
         return text.encode()
 
@@ -104,7 +104,7 @@ class Env:
         """Act as Codex: an atomic rewrite with a rotated refresh token."""
         text = make_auth(**{**spec, "refresh": new_refresh, "last_refresh": when})
         tmp = self.home / "auth.json.rot"
-        tmp.write_text(text, encoding="utf-8")
+        tmp.write_text(text, encoding="utf-8", newline="")
         tmp.replace(self.live)
         return text.encode()
 

@@ -380,10 +380,10 @@ class TestPage:
             r"|\son[a-z]+\s*=|https?://"
         )
         for name in ("index.html", "app.js", "app.css"):
-            text = (root / name).read_text()
+            text = (root / name).read_text(encoding="utf-8")
             assert not bad.search(text), name
-        assert "<script>" not in (root / "index.html").read_text()  # no inline script
-        assert "<style" not in (root / "index.html").read_text()
+        assert "<script>" not in (root / "index.html").read_text(encoding="utf-8")  # no inline script
+        assert "<style" not in (root / "index.html").read_text(encoding="utf-8")
 
 
 class TestCodex:
