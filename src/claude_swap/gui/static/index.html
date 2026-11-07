@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>cswap</title>
+<link rel="stylesheet" href="/app.css">
+</head>
+<body>
+<header>
+  <span class="muted">watching all accounts</span>
+  <span id="mode" class="muted"></span>
+  <span id="updated" class="muted"></span>
+</header>
+<p id="notice" class="muted" role="status"></p>
+<section>
+  <div class="section-head"><span class="muted">claude</span><button id="add" hidden>add current login</button></div>
+  <main id="accounts" aria-live="polite"></main>
+</section>
+<section id="codex" hidden>
+  <div class="section-head"><span class="muted">codex</span><button id="codex-add" hidden>add current login</button></div>
+  <p id="codex-note" class="muted"></p>
+  <main id="codex-accounts" aria-live="polite"></main>
+</section>
+<script src="/app.js"></script>
+</body>
+</html>

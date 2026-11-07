@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sys
+import time
 
 from claude_swap import __version__, paths, printer
 from claude_swap.exceptions import ClaudeSwitchError
@@ -1369,6 +1370,250 @@ def _menubar_service(args) -> int:
     return 0
 
 
+def _onboard_command(argv: list[str]) -> None:
+    """Handle `cswap onboard`: bring several of YOUR accounts in, one guided login each.
+
+    Pre-dispatched like `swap` (positional subcommand beside the main parser's
+    required flag group). It is the documented manual flow -- log in with an
+    account, then `cswap add` -- run in a loop, using Claude Code's own
+    `claude auth login`. It never logs out (that can revoke the token of the
+    account being left) and never reads another app's credentials.
+    """
+    parser = argparse.ArgumentParser(
+        prog=f"{_prog_name()} onboard",
+        description=(
+            "Add all your Claude accounts in one sitting. For each one it runs "
+            "`claude auth login` (you sign in in the browser), then saves that "
+            "login into cswap."
+        ),
+    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    args = parser.parse_args(argv)
+
+    try:
+        switcher = ClaudeAccountSwitcher(debug=args.debug)
+        _guard_root(switcher)
+        _onboard_accounts(switcher)
+    except ClaudeSwitchError as e:
+        error(f"Error: {e}")
+        sys.exit(1)
+    except (KeyboardInterrupt, EOFError):
+        print(dimmed("\nCancelled"))
+        sys.exit(130)
+
+
+def _onboard_accounts(switcher: ClaudeAccountSwitcher) -> None:
+    """The onboard loop, shared by `cswap onboard` and `cswap setup`."""
+    import shutil
+    import subprocess
+
+    claude = shutil.which("claude")
+    if claude is None:
+        raise ClaudeSwitchError(
+            "Claude Code (`claude`) was not found on PATH. Install it first."
+        )
+
+    if switcher._get_current_identity_triple() is not None:
+        answer = input("You are already logged in. Save that account first? [Y/n] ")
+        if answer.strip().lower() in ("", "y", "yes"):
+            switcher.add_account()
+
+    print(dimmed("Do not run /logout between accounts: it can revoke the one you leave."))
+    while True:
+        email = input(
+            "Email of the next account to add (blank to finish): "
+        ).strip()
+        if not email:
+            break
+        # Check the address before launching a browser login for it.
+        if not switcher._validate_email(email):
+            warning(f"'{email}' does not look like an email address.")
+            continue
+        if subprocess.run([claude, "auth", "login", "--email", email]).returncode != 0:
+            warning(f"Login for {email} did not complete; nothing was saved.")
+            continue
+        try:
+            switcher.add_account()
+        except ClaudeSwitchError as e:
+            warning(f"Could not save {email}: {e}")
+    switcher.list_accounts()
+
+
+def _setup_command(argv: list[str]) -> None:
+    """Handle `cswap setup`: the guided first-run screen (see setup_wizard)."""
+    parser = argparse.ArgumentParser(
+        prog=f"{_prog_name()} setup",
+        description=(
+            "Guided setup: check Claude Code and Codex, save your logins, "
+            "pick an auto-switch point, open a dashboard. Safe to re-run."
+        ),
+    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    args = parser.parse_args(argv)
+
+    from claude_swap import setup_wizard
+
+    try:
+        switcher = ClaudeAccountSwitcher(debug=args.debug)
+        _guard_root(switcher)
+        sys.exit(setup_wizard.run(switcher))
+    except ClaudeSwitchError as e:
+        error(f"Error: {e}")
+        sys.exit(1)
+    except (KeyboardInterrupt, EOFError):
+        print(dimmed("\nCancelled"))
+        sys.exit(130)
+
+
+def _gui_command(argv: list[str]) -> None:
+    """Handle `cswap gui [--write] [--no-open] [--port N]`.
+
+    Pre-dispatched like `auto`: a positional subcommand can't live in the main
+    parser's required flag group. Serves a loopback-only web dashboard; see
+    claude_swap.gui.server for what protects it.
+    """
+    parser = argparse.ArgumentParser(
+        prog=f"{_prog_name()} gui",
+        description=(
+            "Open a local web dashboard of your accounts. Read-only unless "
+            "--write is given."
+        ),
+    )
+    parser.add_argument(
+        "--write", action="store_true",
+        help="Allow switching, enabling/disabling and adding the current login",
+    )
+    parser.add_argument(
+        "--no-open", action="store_true",
+        help="Print the link instead of opening a browser (use on shared machines)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=0,
+        help="Fixed port (default: any free one); useful for an SSH tunnel",
+    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    args = parser.parse_args(argv)
+
+    from claude_swap.gui.server import GuiServer
+
+    try:
+        switcher = ClaudeAccountSwitcher(debug=args.debug)
+        _guard_root(switcher)
+        server = GuiServer(switcher, write=args.write, port=args.port)
+    except ClaudeSwitchError as e:
+        error(f"Error: {e}")
+        sys.exit(1)
+    except OSError as e:
+        error(f"Error: could not start the dashboard: {e}")
+        sys.exit(1)
+
+    base = f"http://127.0.0.1:{server.server_port}"
+    # The token rides in the URL fragment, which browsers never send to a
+    # server or in a Referer. It is printed only when the browser is not
+    # opened for the user, so it stays out of terminal scrollback otherwise.
+    link = f"{base}/#{server.token}"
+    opened = False
+    if not args.no_open:
+        import webbrowser
+
+        opened = webbrowser.open(link)
+    mode = "can change accounts" if args.write else "read-only"
+    # flush: serve_forever() blocks, and a redirected stdout (ssh, a log file)
+    # would otherwise hold the link in its buffer until exit.
+    print(f"{accent('Dashboard')} on {base} ({mode}). Ctrl-C to stop.", flush=True)
+    if not opened:
+        print(f"Open: {link}", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+def _codex_command(argv: list[str]) -> None:
+    """Handle `cswap codex add|list|switch|remove|status`.
+
+    Switches the OpenAI Codex CLI login (``$CODEX_HOME/auth.json``). Separate
+    from the Claude accounts: its own roster, and it never touches the network.
+    """
+    from claude_swap import codex
+
+    prog = f"{_prog_name()} codex"
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description=(
+            "Switch Codex CLI accounts. Run `add` for the current login BEFORE "
+            "`codex login` for the next one, and never `codex logout` a managed "
+            "account (it revokes the login server-side)."
+        ),
+    )
+    sub = parser.add_subparsers(dest="verb", required=True)
+
+    def verb(name: str, help: str) -> argparse.ArgumentParser:
+        p = sub.add_parser(name, help=help)
+        p.add_argument("--debug", action="store_true", help="Enable debug logging")
+        return p
+
+    p_add = verb("add", "store the current Codex login in a slot")
+    p_add.add_argument("--slot", type=int, help="slot number (default: next free)")
+    p_add.add_argument("--alias", help="short name for the slot")
+    p_add.add_argument("-y", "--yes", action="store_true", help="overwrite an occupied slot")
+    p_list = verb("list", "list stored Codex accounts")
+    p_list.add_argument("--json", action="store_true")
+    p_switch = verb("switch", "rotate to the next account, or jump to one")
+    p_switch.add_argument("target", nargs="?", metavar="NUM|EMAIL|ALIAS")
+    p_switch.add_argument("--strategy", choices=["best"], help="pick the account with the most quota left")
+    p_switch.add_argument("--force", action="store_true", help="switch even while Codex may be refreshing")
+    p_remove = verb("remove", "forget a stored account")
+    p_remove.add_argument("target", metavar="NUM|EMAIL|ALIAS")
+    p_remove.add_argument("-y", "--yes", action="store_true", help="also remove the active slot")
+    p_status = verb("status", "show which stored account is live")
+    p_status.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+    if args.verb == "switch" and args.target and args.strategy:
+        parser.error("give a target or --strategy, not both")
+
+    try:
+        cx = codex.Codex(debug=args.debug)
+        if args.verb == "add":
+            slot, created = cx.add(slot=args.slot, alias=args.alias, yes=args.yes)
+            print(f"{accent('Added' if created else 'Refreshed')} Codex slot {slot}")
+        elif args.verb == "list":
+            rows = cx.rows()
+            if args.json:
+                print(json.dumps(rows, indent=2))
+            elif not rows:
+                print("No Codex accounts. Run `cswap codex add` while logged in.")
+            for r in rows:
+                name = r["alias"] or r["email"] or "(API key)"
+                use = codex.describe_usage(r["usage"], time.time())
+                print(f"{'*' if r['active'] else ' '} {r['slot']}: {name}  {dimmed(r['plan'])}  {use}")
+        elif args.verb == "switch":
+            slot, changed = cx.switch(args.target, strategy=args.strategy, force=args.force)
+            print(f"{accent('Switched' if changed else 'Already on')} Codex slot {slot}")
+            print(dimmed("Running Codex sessions keep their account until restarted."))
+        elif args.verb == "remove":
+            print(f"{accent('Removed')} Codex slot {cx.remove(args.target, yes=args.yes)}")
+        else:
+            st = cx.status()
+            if args.json:
+                print(json.dumps(st, indent=2))
+            elif st["state"] in ("absent", "unreadable"):
+                print(f"Codex login: {st['state']}")
+            else:
+                slot = f"slot {st['slot']}" if st["slot"] else "NOT managed (run `cswap codex add`)"
+                print(f"Codex login: {st['email'] or '(API key)'} ({st['plan']}), {slot}")
+                if st["usage"]:
+                    print(f"  {codex.describe_usage(st['usage'], time.time())}")
+    except ClaudeSwitchError as e:
+        error(f"Error: {e}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print(f"\n{dimmed('Operation cancelled')}")
+        sys.exit(130)
+
+
 def main() -> None:
     """Main entry point for the CLI."""
     force_utf8_output()
@@ -1413,6 +1658,18 @@ def main() -> None:
     if argv and argv[0] == "priority":
         _priority_command(argv[1:])
         return
+    if argv and argv[0] == "onboard":
+        _onboard_command(argv[1:])
+        return
+    if argv and argv[0] == "setup":
+        _setup_command(argv[1:])
+        return
+    if argv and argv[0] == "gui":
+        _gui_command(argv[1:])
+        return
+    if argv and argv[0] == "codex":
+        _codex_command(argv[1:])
+        return
     if argv and argv[0] == "swap":
         _swap_command(argv[1:])
         return
@@ -1443,6 +1700,9 @@ Commands:
   %(prog)s switch                     rotate to the next account
   %(prog)s switch <num|email>         switch to a specific account
   %(prog)s add                        add the current account
+  %(prog)s setup                      guided first-run: logins, auto-switch, dashboards
+  %(prog)s onboard                    add all your accounts, one guided login each
+  %(prog)s gui [--write]              local web dashboard (read-only unless --write)
   %(prog)s add-token [TOKEN|-]        register a setup-token or API key
   %(prog)s remove <num|email>         remove an account
   %(prog)s disable <num|email>        hold an account out of auto-rotation
@@ -1463,6 +1723,7 @@ Commands:
   %(prog)s swap <a> <b>               exchange two accounts' slot numbers
   %(prog)s move <a> <slot>            assign an account to a slot (swaps if taken)
   %(prog)s auto                       auto-switch when nearing rate limits
+  %(prog)s codex add|list|switch|remove|status  switch OpenAI Codex CLI accounts
   %(prog)s config [set KEY VALUE]     show or change settings (settings.json)
   %(prog)s unclaimed [--purge ID]     list or drop stashed credential entries
   %(prog)s export <path>              export accounts

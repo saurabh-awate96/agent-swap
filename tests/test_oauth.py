@@ -1256,6 +1256,18 @@ class TestSetupTokenHeaderProbe:
         assert outcome.usage["five_hour"]["pct"] == 100.0
         assert oauth.account_headroom(outcome.usage) == 0.0
 
+    def test_nonfinite_or_huge_probe_retry_after_does_not_raise(self):
+        """`inf` is treated as absent; a huge value is capped (a week), so
+        timedelta(seconds=...) never overflows and the rejection survives."""
+        for raw, expected in (("inf", None), ("1e300", 7 * 24 * 3600.0)):
+            values = dict(_UNIFIED_HEADERS)
+            values["anthropic-ratelimit-unified-status"] = "rejected"
+            values["Retry-After"] = raw
+            fake, _ = self._route(self._endpoint_error(), self._probe_429(values))
+            outcome = self._fetch(fake)
+            assert outcome.usage is not None, f"probe lost the rejection for Retry-After {raw}"
+            assert outcome.usage["rejected"]["retry_after_s"] == expected
+
     def test_rejected_probe_below_100_is_still_at_its_limit(self, caplog):
         """A 429 whose 5h/7d numbers look healthy (another limit binds) keeps
         the rejection and its Retry-After: never a healthy switch target."""

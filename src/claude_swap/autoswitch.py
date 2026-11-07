@@ -41,6 +41,8 @@ import json
 import logging
 import math
 import random
+import shutil
+import subprocess
 import threading
 import time
 from collections.abc import Callable, Mapping, Sequence
@@ -49,8 +51,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import ClassVar
 
-from claude_swap import oauth, poll_policy
-from claude_swap.exceptions import ClaudeSwitchError
+from claude_swap import oauth, poll_policy, spawn
+from claude_swap.exceptions import ClaudeSwitchError, SessionError
 from claude_swap.json_output import SCHEMA_VERSION, USAGE_TOKEN_EXPIRED
 from claude_swap.lines import BindingWindow, binding_window, window_line
 from claude_swap.locking import FileLock
@@ -60,6 +62,7 @@ from claude_swap.poll_policy import (
     RESET_SLACK_S,
     binding_pct,
 )
+from claude_swap.session import SessionManager, _probe_env
 from claude_swap.settings import AutoSwitchSettings, atomic_write_json, parse_model_names
 from claude_swap.switcher import ClaudeAccountSwitcher
 from claude_swap.usage_store import due_candidate, plan_oversleeps_interval
@@ -144,6 +147,13 @@ HORIZON_HEADROOM_RATIO = 2.0
 # the no-return bar's release asks the account we left to have gained at least
 # this much.
 SPENT_HEADROOM_PCT = 3.0
+
+# Keepalive (``autoswitch.keepalive``): ping an idle slot whose stored access
+# token expires within this window, at most once per interval per slot, with a
+# hard cap on how long the real ``claude`` may run.
+KEEPALIVE_EXPIRY_WINDOW_MS = 60 * 60 * 1000
+KEEPALIVE_INTERVAL_S = 8 * 3600.0
+KEEPALIVE_TIMEOUT_S = 90
 
 
 def _all_above_margin_met(candidate_headroom: float, active_headroom: float) -> bool:
@@ -405,6 +415,22 @@ class UnquarantineEvent(AutoSwitchEvent):
 
     def human(self) -> str:
         return f"Account-{self.number} ({self.email}) back in rotation ({self.reason})"
+
+
+@dataclass(frozen=True)
+class KeepaliveEvent(AutoSwitchEvent):
+    kind: ClassVar[str] = "keepalive"
+    account: dict  # account_ref shape
+    outcome: str  # "ok" | "failed" | "skipped-no-claude" | "dry-run"
+
+    def _fields(self) -> dict:
+        return {"account": self.account, "outcome": self.outcome}
+
+    def human(self) -> str:
+        who = f"Account-{self.account.get('number')} ({self.account.get('email')})"
+        if self.outcome == "dry-run":
+            return f"[dry-run] would send a keepalive request for {who}"
+        return f"keepalive {who}: {self.outcome}"
 
 
 @dataclass(frozen=True)
@@ -715,6 +741,9 @@ class AutoSwitchEngine:
         # warned) on the first tick where every relevant account has readable
         # usage — adaptive polling legitimately leaves gaps before that.
         self._model_check_done = not self._models
+        # Dry-run writes no attempt time, so it remembers what it already
+        # announced instead of repeating it every tick.
+        self._keepalive_announced: set[str] = set()
 
     # -- state file ---------------------------------------------------------
 
@@ -905,6 +934,118 @@ class AutoSwitchEngine:
             return False
         return slot_identity["uuid"] != ta_uuid
 
+    # -- keepalive ------------------------------------------------------------
+
+    def _keepalive_candidate(self, state: dict) -> tuple[str, str] | None:
+        """The first idle OAuth slot due a keepalive, as ``(number, email)``.
+
+        Due: not the active account, not disabled (``switchable_...``), not
+        quarantined, no live ``cswap run`` session, a refresh token (so no
+        setup-token), a stored access token expiring within the window (or
+        already expired), and no attempt in the last ``KEEPALIVE_INTERVAL_S``.
+        """
+        quarantine = state.get("quarantine")
+        attempts = state.get("lastKeepaliveAt")
+        if not isinstance(attempts, dict):
+            attempts = {}
+        current = self.switcher.current_account_number()
+        now = self.clock()
+        for num in self.switcher.switchable_account_numbers():
+            if (
+                num == current
+                or num in self._keepalive_announced
+                or (isinstance(quarantine, dict) and num in quarantine)
+                or self.switcher.account_kind_for(num) == "api_key"
+            ):
+                continue
+            last = attempts.get(num)
+            # Bounded below like `_in_cooldown`: a backward clock step must not
+            # hold the slot back for the length of the step.
+            if isinstance(last, (int, float)) and 0 <= now - last < KEEPALIVE_INTERVAL_S:
+                continue
+            email = self.switcher.account_email(num)
+            creds = self.switcher.read_account_credentials(num, email)
+            data = oauth.extract_oauth_data(creds) if creds else None
+            expires_at = data.get("expiresAt") if data else None
+            if (
+                not data
+                or not data.get("refreshToken")
+                or not isinstance(expires_at, (int, float))
+                or now * 1000 + KEEPALIVE_EXPIRY_WINDOW_MS < expires_at
+            ):
+                continue
+            try:
+                self.switcher._ensure_no_live_session(num, email, "keepalive")
+            except SessionError:
+                continue
+            return num, email
+        return None
+
+    def _keepalive(self) -> None:
+        """Send one tiny request for one idle slot through the real ``claude``.
+
+        The genuine client refreshes its own token (its own User-Agent) inside
+        a session profile seeded WITHOUT any cswap refresh; the profile's
+        rotated credential is then adopted back so the backup is never left
+        behind it. The attempt time is stored first, so a hang or crash cannot
+        cause a retry storm; failure never quarantines (the existing logic is
+        the only authority on dead logins).
+        """
+        picked = self._keepalive_candidate(self._read_state())
+        if picked is None:
+            return
+        num, email = picked
+        ref = _ref(num, email)
+        if self.dry_run:
+            self._keepalive_announced.add(num)
+            self._emit(KeepaliveEvent(account=ref, outcome="dry-run"))
+            return
+        at = self.clock()
+
+        def record(state: dict) -> None:
+            if not isinstance(state.get("lastKeepaliveAt"), dict):
+                state["lastKeepaliveAt"] = {}
+            state["lastKeepaliveAt"][num] = at
+
+        self._mutate_state(record)
+        claude_bin = shutil.which("claude")
+        if claude_bin is None:
+            self._emit(KeepaliveEvent(account=ref, outcome="skipped-no-claude"))
+            return
+        outcome = "failed"
+        session_dir = None
+        try:
+            session_dir, _, _ = SessionManager(self.switcher).setup_session(
+                num, share=False, share_history=False, pre_refresh=False
+            )
+            result = spawn.run(
+                [claude_bin, "-p", ".", "--model", "haiku", "--no-session-persistence"],
+                env=_probe_env(session_dir),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=KEEPALIVE_TIMEOUT_S,
+            )
+            if result.returncode == 0:
+                outcome = "ok"
+        except Exception as e:  # timeout, spawn error, profile setup refusal
+            _logger.debug("keepalive for account %s failed: %s", num, type(e).__name__)
+        finally:
+            if session_dir is not None:
+                # Claude rotated the refresh token in the profile, success or
+                # not: the backup must hold the successor or the login dies.
+                try:
+                    self.switcher._adopt_session_credential(
+                        num, email,
+                        self.switcher.account_identity(num)["organizationUuid"],
+                    )
+                except Exception as e:
+                    _logger.warning(
+                        "keepalive: could not adopt account %s's session "
+                        "credential: %s", num, type(e).__name__,
+                    )
+        self._emit(KeepaliveEvent(account=ref, outcome=outcome))
+
     # -- tick -----------------------------------------------------------------
 
     def tick(self) -> TickOutcome:
@@ -912,6 +1053,16 @@ class AutoSwitchEngine:
         try:
             outcome = self._tick_inner()
             self._persist_health_counters(self._health_account)
+            if self.settings.keepalive:
+                try:
+                    self._keepalive()
+                except Exception as e:  # a keepalive problem never fails the tick
+                    self._emit(
+                        ErrorEvent(
+                            message=f"keepalive: {type(e).__name__}: {e}",
+                            transient=True,
+                        )
+                    )
             return outcome
         except ClaudeSwitchError as e:
             self._emit(ErrorEvent(message=str(e), transient=True))
@@ -1446,6 +1597,45 @@ class AutoSwitchEngine:
                 thresholds=thresholds,
             )
 
+        if (
+            not ordered
+            and not self.dry_run
+            and trigger not in ("consume-first", "priority")
+        ):
+            # We must leave, but background collection never refreshes an idle
+            # slot, so candidates whose token lapsed read as unknown and none
+            # can rank. Refresh them here, once each and only until one ranks,
+            # through the same gate a switch uses, then rank again. Dry-run
+            # stops at the decision: freshening is a mutation.
+            for num in [n for n in oauth_candidates if usage.get(n) == USAGE_TOKEN_EXPIRED]:
+                email = self.switcher.account_email(num)
+                status = self._freshen_target(num, email)
+                if status in ("invalid_grant", "identity-conflict"):
+                    self._quarantine(num, email, status)
+                    oauth_candidates.remove(num)
+                    continue
+                if status != "ok":
+                    continue  # transient/systemic/live session: next tick retries
+                entries = self.switcher.usage_entries_by_account(fetch={num})
+                usage = {n: entry.decision_value() for n, entry in entries.items()}
+                headroom = _headroom_by_account(usage, self._models)
+                active_headroom = headroom.get(current)
+                decided_now = self.clock()
+                ordered, any_known, active_reset_ts = _rank(
+                    trigger=trigger,
+                    consume_first=consume_first,
+                    oauth_candidates=oauth_candidates,
+                    usage=usage,
+                    headroom=headroom,
+                    current=current,
+                    active_headroom=active_headroom,
+                    settings=settings,
+                    now=decided_now,
+                    thresholds=thresholds,
+                )
+                if ordered:
+                    break
+
         priority_active_ready = priority_mode and current in switchable and self._priority_ready(
             usage.get(current), headroom.get(current), settings, thresholds[current]
         )
@@ -1595,7 +1785,7 @@ class AutoSwitchEngine:
             if self.dry_run:
                 # Dry-run stops at the decision: no token refresh, no
                 # quarantine writes — freshening is a mutation.
-                return self._perform(num, email, trigger, left_snapshot)
+                return self._perform(num, email, trigger, left_snapshot, current)
             status = self._freshen_target(num, email)
             if status == "identity-conflict":
                 # The slot's credential is alive but belongs to a different
@@ -1626,7 +1816,7 @@ class AutoSwitchEngine:
                 continue
             if status == "skip-live-session":
                 continue
-            return self._perform(num, email, trigger, left_snapshot)
+            return self._perform(num, email, trigger, left_snapshot, current)
 
         if systemic or transient_failure:
             self._emit(
@@ -2467,6 +2657,7 @@ class AutoSwitchEngine:
         email: str,
         trigger: str,
         left: tuple[float | None, float],
+        expected_current: str | None,
     ) -> TickOutcome:
         if self.dry_run:
             current = self.switcher.current_account_number()
@@ -2488,6 +2679,20 @@ class AutoSwitchEngine:
         # switch path (cswap FileLock + Claude Code locks) never takes the
         # state lock.
         with self._state_lock():
+            # The decision was made on the account read at the top of the tick,
+            # and collecting usage plus freshening the target can take many
+            # seconds. A manual `cswap switch` (menubar click, another
+            # terminal) takes no state lock, so it can land in that gap — and
+            # applying the stale decision would move the user off the account
+            # they just chose, onto one picked for the account they left.
+            if self.switcher.current_account_number() != expected_current:
+                self._emit(
+                    NoSwitchEvent(
+                        reason="active-changed",
+                        detail="the active account changed since this tick began",
+                    )
+                )
+                return TickOutcome.NO_ACTION
             state = self._read_state()
             if trigger in ("proactive", "consume-first", "priority") and self._in_cooldown(state):
                 self._emit(NoSwitchEvent(reason="cooldown"))
@@ -2560,7 +2765,10 @@ class AutoSwitchEngine:
         last = state.get("lastSwitchAt")
         if not isinstance(last, (int, float)):
             return False
-        return (self.clock() - last) < self.settings.cooldown_seconds
+        # Bounded below like `_load_health_counters`: a backward clock step
+        # makes the elapsed time negative, which would hold the cooldown for
+        # the whole length of the step and freeze proactive switching.
+        return 0 <= (self.clock() - last) < self.settings.cooldown_seconds
 
     def _check_model_names(
         self, quarantined: set[str], usage: dict[str, dict | str | None]

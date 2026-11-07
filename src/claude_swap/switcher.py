@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 import json
-import logging
 import os
 import re
 import shutil
@@ -76,7 +76,6 @@ from claude_swap.printer import (
     bolded,
     dimmed,
     entrypoint_label,
-    error,
     format_age,
     ide_short_name,
     muted,
@@ -138,6 +137,26 @@ _LOCKSTEP_RESET_TOLERANCE_S = 5.0
 # serve TTL the data is current by design (that is the polling cadence), so
 # an age note there would be permanent noise.
 _USAGE_AGE_NOTE_S = poll_policy.SERVE_TTL_S
+
+
+def _under_account_lock(method):
+    """Run a ``sequence.json`` read-modify-write under the switch lock.
+
+    ``_perform_switch`` reads and writes this file inside ``self.lock_file``.
+    A setter that read it outside that lock could land in the middle of a
+    switch and have its change overwritten by the switch's older copy (a
+    `disable` that auto-switch then ignores), or write back a stale active-
+    account pointer. Every decorated method must read ``sequence.json`` inside
+    its own body, i.e. after the lock is taken, and must not call another
+    method that takes ``lock_file`` (the lock is not reentrant).
+    """
+
+    @functools.wraps(method)
+    def wrapper(self, *args, **kwargs):
+        with FileLock(self.lock_file):
+            return method(self, *args, **kwargs)
+
+    return wrapper
 
 
 def _pace_marker(window: dict, fetched_at: float | None) -> str:
@@ -233,7 +252,7 @@ ERROR_NOTES = {
 }
 
 SENTINEL_NOTES = {
-    USAGE_TOKEN_EXPIRED: "token expired — refresh deferred this pass; retries automatically",
+    USAGE_TOKEN_EXPIRED: "token expired — refreshed when needed (cswap list refreshes it now)",
     USAGE_FOREIGN_CREDENTIAL: "live credential belongs to another account — a switch repairs it",
     USAGE_API_KEY: "API key (no quota)",
     USAGE_KEYCHAIN_UNAVAILABLE: "keychain unavailable — locked or in use; try again",
@@ -472,8 +491,11 @@ class ClaudeAccountSwitcher:
 
     def _validate_email(self, email: str) -> bool:
         """Validate email format."""
-        pattern = r"^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$"
-        return bool(re.match(pattern, email))
+        pattern = r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}"
+        # fullmatch, not `^...$`: `$` also matches before a trailing "\n", and
+        # an email with a newline in it splits the `security -i` command line
+        # it is interpolated into and lands in a filename.
+        return bool(re.fullmatch(pattern, email))
 
     def _setup_directories(self) -> None:
         """Create backup directories with proper permissions."""
@@ -1009,6 +1031,7 @@ class ClaudeAccountSwitcher:
             record.get("organizationUuid", "") or "",
         )
 
+    @_under_account_lock
     def set_alias(self, identifier: str, alias: str) -> tuple[str, str]:
         """Set (or rename) the alias for the account matching identifier.
 
@@ -1047,6 +1070,7 @@ class ClaudeAccountSwitcher:
         self._write_json(self.sequence_file, data)
         return account_num, normalized
 
+    @_under_account_lock
     def unset_alias(self, identifier: str) -> str:
         """Clear the alias for the account matching identifier.
 
@@ -1813,8 +1837,11 @@ class ClaudeAccountSwitcher:
         future plans while still allowing due plans to beat the serve TTL.
         """
         accounts_info = self._build_accounts_info()
+        # The engine's per-tick collection is unattended: it never refreshes
+        # an idle slot (see `_fetch_account_usage`); a switch decision that
+        # needs one refreshes it on demand instead.
         return self._collect_usage_entries(
-            accounts_info, fetch=fetch, scheduled=scheduled
+            accounts_info, fetch=fetch, scheduled=scheduled, refresh_idle=False
         )
 
     def _subscription_store(self) -> subscription.PlanStore:
@@ -1916,7 +1943,10 @@ class ClaudeAccountSwitcher:
         this pass.
         """
         accounts_info = self._build_accounts_info()
-        entries = self._collect_usage_entries(accounts_info, fetch=fetch)
+        # Dashboards repaint on a timer: unattended, so no idle-slot refresh.
+        entries = self._collect_usage_entries(
+            accounts_info, fetch=fetch, refresh_idle=False
+        )
         plans = self._plans_for_pass(accounts_info, fetch)
         seq_data = self._get_sequence_data() or {}
         active_number: str | None = None
@@ -2161,6 +2191,7 @@ class ClaudeAccountSwitcher:
             raise AccountNotFoundError(f"Account-{account_num} does not exist")
         return account_num, email, data, record
 
+    @_under_account_lock
     def set_account_threshold(self, identifier: str, threshold: object | None) -> None:
         """Set or clear one account's own switch-away threshold.
 
@@ -2224,6 +2255,7 @@ class ClaudeAccountSwitcher:
             print(f"{accent('Set')} Account-{account_num} ({email}) "
                   f"threshold to {normalized:g}%.")
 
+    @_under_account_lock
     def set_account_priority(self, identifier: str, priority: object | None) -> None:
         """Set a priority tier, or remove it with None/0. Validate before writing."""
         normalized = 0 if priority is None else normalize_account_priority(priority)
@@ -2240,6 +2272,7 @@ class ClaudeAccountSwitcher:
         print(f"Account-{account_num} ({email}) priority: {normalized} "
               "(used by priority-consume-first).")
 
+    @_under_account_lock
     def set_account_disabled(self, identifier: str, disabled: bool) -> None:
         """Hold an account out of rotation (``disabled=True``) or return it.
 
@@ -4533,12 +4566,16 @@ class ClaudeAccountSwitcher:
         # Remove backup files
         self._delete_account_files(account_num, email)
 
-        # Update sequence.json
-        del data["accounts"][account_num]
-        data["sequence"] = [n for n in data["sequence"] if n != int(account_num)]
-        data["lastUpdated"] = get_timestamp()
-
-        self._write_json(self.sequence_file, data)
+        # Update sequence.json. `data` was read before the confirmation prompt
+        # (and before the file deletion above), so writing it back would undo
+        # whatever a switch changed meanwhile -- notably the active-account
+        # pointer. Re-read under the switch lock and drop only this slot.
+        with FileLock(self.lock_file):
+            data = self._get_sequence_data() or data
+            data["accounts"].pop(account_num, None)
+            data["sequence"] = [n for n in data["sequence"] if n != int(account_num)]
+            data["lastUpdated"] = get_timestamp()
+            self._write_json(self.sequence_file, data)
         self._logger.info(f"Removed account {account_num}: {email}")
         print(f"{accent('Removed')} Account-{account_num} ({email})")
 
@@ -5342,9 +5379,13 @@ class ClaudeAccountSwitcher:
         self,
         account_info: tuple[int, str, str, str, bool, str, str],
         rejected_fp: str | None = None,
+        refresh_idle: bool = True,
     ) -> FetchRecord:
         """One network fetch for one account. Never raises. ``rejected_fp``
-        is the row's refused-credential stamp, if any."""
+        is the row's refused-credential stamp, if any. ``refresh_idle=False``
+        (unattended collection) never POSTs a refresh for an idle slot: an
+        expired or refused token reads as "token expired" until a user action
+        or an auto-switch decision refreshes it."""
         num, email, _, org_uuid, is_active, creds, _alias = account_info
 
         # The active/default account owns the live credential — route it
@@ -5428,11 +5469,12 @@ class ClaudeAccountSwitcher:
                     return FetchRecord(sentinel=USAGE_TOKEN_EXPIRED)
                 return self._read_only_fetch(str(num), email, session_creds, rejected_fp)
 
-        if has_live_session:
+        if has_live_session or not refresh_idle:
             # No profile credential to read (wiped under the session, or
             # unreadable): the backup copy serves read-only, and once the
             # live claude has rotated past it the server refuses it for
             # good. An expired copy is known refused without asking.
+            # (Also the unattended path: same read-only fetch, no refresh.)
             backup_oauth = oauth.extract_oauth_data(creds) or {}
             if oauth.is_oauth_token_expired(backup_oauth.get("expiresAt")):
                 return FetchRecord(sentinel=USAGE_TOKEN_EXPIRED)
@@ -5480,6 +5522,7 @@ class ClaudeAccountSwitcher:
         self,
         infos: list[tuple[int, str, str, str, bool, str, str]],
         entries: dict[str, UsageEntry] | None = None,
+        refresh_idle: bool = True,
     ) -> dict[str, FetchRecord]:
         """Fetch the given accounts in parallel, staggering request starts so
         N accounts never hit the endpoint in the same instant. ``entries``
@@ -5493,7 +5536,9 @@ class ClaudeAccountSwitcher:
             num = str(info[0])
             entry = entries.get(num) if entries else None
             return num, self._fetch_account_usage(
-                info, entry.rejected_fingerprint if entry else None
+                info,
+                entry.rejected_fingerprint if entry else None,
+                refresh_idle,
             )
 
         with ThreadPoolExecutor() as executor:
@@ -5507,6 +5552,7 @@ class ClaudeAccountSwitcher:
         fetch: set[str] | None = None,
         *,
         scheduled: bool = False,
+        refresh_idle: bool = True,
     ) -> dict[str, UsageEntry]:
         """Store-backed usage collection: one :class:`UsageEntry` per account.
 
@@ -5612,7 +5658,7 @@ class ClaudeAccountSwitcher:
         if claims:
             pre = entries
             records = self._run_usage_fetches(
-                [info_by_num[num] for num in claims], pre
+                [info_by_num[num] for num in claims], pre, refresh_idle
             )
             plans = self._plans_after_fetch(records, pre, info_by_num)
             accepted = store.record(records, identities, claims, plans)
@@ -6683,6 +6729,22 @@ class ClaudeAccountSwitcher:
                         f"{accent('Skipping')} Account-{candidate} "
                         f"(no stored credentials/config, re-add with "
                         f"cswap --add-account --slot {candidate})"
+                    )
+                continue
+            # A slot the collectors have struck as refresh-token-dead is not a
+            # rotation target: landing on it works for minutes (the access
+            # token is still good), then claude shows /login. `cswap auto`
+            # already drops such slots; the manual rotation must agree. An
+            # explicit `switch <num>` still goes through (it never reaches
+            # this loop), so the user can force it.
+            candidate_email = (data["accounts"].get(candidate) or {}).get("email", "")
+            if self._slot_token_dead(candidate, candidate_email):
+                if json_output:
+                    warnings.append(f"Skipped Account-{candidate} (login expired)")
+                else:
+                    print(
+                        f"{accent('Skipping')} Account-{candidate} (login expired, "
+                        f"log in with it and re-run cswap add --slot {candidate})"
                     )
                 continue
             if strategy == "next-available":
@@ -8039,6 +8101,12 @@ class ClaudeAccountSwitcher:
                             removed_items.append(f"Credential: {username}")
                         except Exception:
                             pass  # Ignore errors during purge
+
+                # Every backup write retains the previous generation as a
+                # `.prev` item (plus its `.enc.prev` file), holding the old
+                # access/refresh tokens. Best-effort inside, never raises.
+                for num in nums:
+                    self._store.delete_previous_backup(num, email)
 
                 # Items the legacy ``keyring`` library stored (service
                 # ``claude-code``) that the keyring → security migration left

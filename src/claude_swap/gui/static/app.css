@@ -1,0 +1,47 @@
+/* Mirrors the TUI: flat, low-chrome, monospace, the same palette and bar glyphs.
+   Dark is the default (cswap-dark); the light companion follows the system. */
+:root {
+  --bg: #141414; --surface: #1e1e1e; --panel: #262626;
+  --fg: #e8e4de; --muted: #8a8a8a; --accent: #d7875f;
+  --ok: #87af87; --warn: #d7af5f; --crit: #d75f5f; --track: #3a3a3a;
+}
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #faf7f2; --surface: #efeae1; --panel: #e2dbcf;
+    --fg: #2b2723; --muted: #635d55; --accent: #954c2a;
+    --ok: #3d6b3d; --warn: #795911; --crit: #ad3128; --track: #cec7ba;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+  font: 15px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
+}
+header { display: flex; flex-wrap: wrap; gap: 4px 24px; padding: 0 12px; }
+#notice { padding: 0 12px; margin: 4px 0 0; min-height: 1.5em; }
+section { margin-top: 12px; }
+.section-head { display: flex; gap: 16px; align-items: baseline; padding: 0 12px; }
+.muted { color: var(--muted); }
+.dim { opacity: 0.6; }
+main { padding: 4px 12px; }
+.acct { margin: 12px 0 18px; padding-left: 10px; border-left: 3px solid transparent; }
+.acct.active { border-left-color: var(--accent); }
+.head { overflow-wrap: anywhere; }
+.num { font-weight: bold; margin-right: 12px; white-space: pre; }
+.alias { color: var(--accent); font-weight: bold; }
+.on { color: var(--accent); font-weight: bold; margin-left: 12px; }
+.badge { margin-left: 12px; color: var(--muted); }
+.row { display: flex; flex-wrap: wrap; gap: 0 12px; padding-left: 28px; }
+.row .label { color: var(--muted); min-width: 5ch; }
+.bar { white-space: pre; }
+.pct { min-width: 4ch; text-align: right; }
+.ok { color: var(--ok); } .warn { color: var(--warn); } .crit { color: var(--crit); }
+.track { color: var(--track); } .tick { color: var(--warn); }
+.note { padding-left: 28px; }
+.acts { padding-left: 28px; margin-top: 2px; display: flex; gap: 12px; }
+button {
+  font: inherit; color: var(--muted); background: none; border: 0; padding: 0;
+  cursor: pointer; text-decoration: underline;
+}
+button:hover { color: var(--fg); }
+button:disabled { opacity: 0.4; cursor: default; text-decoration: none; }

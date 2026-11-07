@@ -76,6 +76,14 @@ class TestEmailValidation:
         for email in invalid_emails:
             assert not switcher._validate_email(email), f"Expected {email} to be invalid"
 
+    def test_trailing_newline_is_rejected(self, temp_home: Path):
+        # `$` matches before a final "\n", so a match-based check accepted this.
+        # The address is interpolated into a `security -i` command line and a
+        # filename, where a newline splits the command.
+        switcher = ClaudeAccountSwitcher()
+        assert not switcher._validate_email("user@example.com\n")
+        assert not switcher._validate_email("user@example.com\r\n")
+
 
 class TestFindAccountSlot:
     """Test the (email, organizationUuid) -> slot composite-key lookup."""
@@ -1241,6 +1249,71 @@ class TestFetchAccountUsageSessionProfile:
         args, kwargs = mock_fetch.call_args
         assert args[2] == session
         assert kwargs.get("is_active") is True
+
+
+class TestBackgroundCollectionNeverRefreshesIdleSlots:
+    """Unattended collection (auto engine, dashboards) must not POST a
+    refresh for an idle slot; explicit callers (`cswap list`) still may."""
+
+    def _idle(self, switcher, token_expiry_s: float):
+        creds = _oauth_creds("sk-idle", token_expiry_s)
+        switcher._setup_directories()
+        switcher._write_account_credentials("2", "test@example.com", creds)
+        return (2, "test@example.com", "Org", "org-uuid", False, creds, "")
+
+    def test_expired_idle_slot_is_token_expired_without_any_network(
+        self, temp_home: Path
+    ):
+        switcher = ClaudeAccountSwitcher()
+        info = self._idle(switcher, -3600)
+        with patch("urllib.request.urlopen") as urlopen, \
+             patch.object(switcher, "_live_session_pids", return_value=[]), \
+             patch.object(switcher, "consume_backup_grant") as gate, \
+             patch("claude_swap.oauth.try_refresh_oauth_credentials") as post:
+            entry = switcher._collect_usage_entries(
+                [info], fetch={"2"}, refresh_idle=False
+            )["2"]
+        assert entry.sentinel == USAGE_TOKEN_EXPIRED
+        assert entry.last_error is None
+        urlopen.assert_not_called()
+        gate.assert_not_called()
+        post.assert_not_called()
+
+    def test_401_on_an_idle_slot_does_not_refresh_and_is_stamped(
+        self, temp_home: Path
+    ):
+        switcher = ClaudeAccountSwitcher()
+        info = self._idle(switcher, 7200)
+        with patch.object(switcher, "_live_session_pids", return_value=[]), \
+             patch.object(switcher, "consume_backup_grant") as gate, \
+             patch("claude_swap.oauth.try_refresh_oauth_credentials") as post, \
+             patch("claude_swap.oauth.request_usage_data",
+                   side_effect=urllib.error.HTTPError("u", 401, "x", {}, None)):
+            record = switcher._fetch_account_usage(info, refresh_idle=False)
+        assert record.sentinel == USAGE_TOKEN_EXPIRED
+        assert record.rejected_fp == oauth.access_token_fingerprint(info[5])
+        gate.assert_not_called()
+        post.assert_not_called()
+
+    def test_explicit_collection_still_refreshes(self, temp_home: Path):
+        switcher = ClaudeAccountSwitcher()
+        info = self._idle(switcher, -3600)
+        with patch.object(switcher, "_live_session_pids", return_value=[]), \
+             patch("claude_swap.oauth.try_fetch_usage_for_account",
+                   return_value=oauth.UsageOutcome({"five_hour": {"pct": 5}})) as fetch:
+            switcher._collect_usage_entries([info], fetch={"2"})
+        assert fetch.call_args.kwargs["refresh_via"] == switcher.consume_backup_grant
+
+    def test_auto_engine_and_dashboard_entry_points_do_not_refresh(
+        self, temp_home: Path
+    ):
+        switcher = ClaudeAccountSwitcher()
+        with patch.object(switcher, "_build_accounts_info", return_value=[]), \
+             patch.object(switcher, "_collect_usage_entries", return_value={}) as c, \
+             patch.object(switcher, "_plans_for_pass", return_value={}):
+            switcher.usage_entries_by_account(fetch=set())
+            switcher.accounts_snapshot(fetch=set())
+        assert [call.kwargs["refresh_idle"] for call in c.call_args_list] == [False, False]
 
 
 class TestSetupTokenHeaderProbeWiring:
@@ -5594,6 +5667,29 @@ class TestPurgeQuarantineWarning:
 
         assert "history-conflicts" not in capsys.readouterr().out
 
+    def test_purge_drops_each_slots_retained_previous_generation(
+        self, temp_home: Path
+    ):
+        """Every backup write keeps the old generation as a `.prev` item, which
+        holds the previous access/refresh tokens. Purge deleted the live item
+        by name and never the `.prev` one, so "Purge complete" left tokens in
+        the login keychain."""
+        switcher = ClaudeAccountSwitcher()
+        switcher._setup_directories()
+        switcher._init_sequence_file()
+        data = switcher._get_sequence_data()
+        data["accounts"]["1"] = {"email": "a@example.com"}
+        data["sequence"] = [1]
+        switcher._write_json(switcher.sequence_file, data)
+
+        with patch.object(switcher._store, "delete_previous_backup") as drop, \
+                patch("builtins.input", return_value="y"):
+            switcher.purge()
+
+        dropped = {call.args for call in drop.call_args_list}
+        assert ("1", "a@example.com") in dropped
+        assert ("None", "a@example.com") in dropped
+
     def test_purge_still_removes_the_quarantine_tree(self, temp_home: Path):
         """The warning is the fix, not a behavior change: purge is the user's
         "remove everything" hammer and still removes everything."""
@@ -9567,6 +9663,98 @@ class TestDisableEnableAccount:
         out = capsys.readouterr().out
         assert "Skipping Account-2 (disabled)" in out
         assert s._get_sequence_data()["activeAccountNumber"] == 3
+
+    def _lock_that_lets_a_switch_land_first(self, s, monkeypatch):
+        """Stand in for FileLock: on entry, behave as if a switch finished
+        just before we got the lock (it moved the active pointer to 3).
+        Returns the list of entries so a test can assert the lock was taken."""
+        entered = []
+
+        class LockAfterSwitch:
+            def __init__(self, *a, **k):
+                pass
+
+            def __enter__(self):
+                entered.append(True)
+                data = s._get_sequence_data()
+                data["activeAccountNumber"] = 3
+                s._write_json(s.sequence_file, data)
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        monkeypatch.setattr("claude_swap.switcher.FileLock", LockAfterSwitch)
+        return entered
+
+    def test_disable_reads_under_the_switch_lock(self, temp_home, monkeypatch):
+        """A `disable` read sequence.json before the lock, so a switch landing
+        in between had its active-account pointer (or the disable itself)
+        overwritten by whichever wrote second with the older copy."""
+        s = self._setup(temp_home)
+        for n, e in ((1, "a@example.com"), (2, "b@example.com"), (3, "c@example.com")):
+            self._seed(s, n, e)
+        entered = self._lock_that_lets_a_switch_land_first(s, monkeypatch)
+
+        s.set_account_disabled("2", True)
+
+        data = s._get_sequence_data()
+        assert entered, "the setter never took the switch lock"
+        assert data["accounts"]["2"].get("disabled") is True
+        assert data["activeAccountNumber"] == 3  # the switch's write survived
+
+    def test_remove_does_not_write_back_a_stale_active_pointer(
+        self, temp_home, monkeypatch
+    ):
+        """`cswap remove` reads sequence.json, waits at a y/n prompt, then
+        wrote that old copy back -- reverting a switch made meanwhile."""
+        s = self._setup(temp_home)
+        for n, e in ((1, "a@example.com"), (2, "b@example.com"), (3, "c@example.com")):
+            self._seed(s, n, e)
+        entered = self._lock_that_lets_a_switch_land_first(s, monkeypatch)
+
+        s.remove_account("2", assume_yes=True)
+
+        data = s._get_sequence_data()
+        assert entered, "remove never took the switch lock"
+        assert "2" not in data["accounts"]
+        assert data["activeAccountNumber"] == 3
+
+    def test_rotation_skips_slot_with_dead_refresh_token(self, temp_home, capsys):
+        """active=1, slot 2 struck as refresh-token-dead — bare switch lands on 3.
+
+        `cswap auto` already drops such a slot; the manual rotation used to
+        land on it, which works for minutes (the access token is still good)
+        and then leaves claude on /login.
+        """
+        s = self._setup(temp_home)
+        self._seed(s, 1, "a@example.com")
+        self._seed(s, 2, "b@example.com")
+        self._seed(s, 3, "c@example.com")
+        self._make_live(temp_home, "a@example.com", 1)
+
+        with patch.object(
+            s, "_slot_token_dead", side_effect=lambda num, email: num == "2"
+        ), patch.object(s, "list_accounts"):
+            s.switch()
+
+        assert "Skipping Account-2 (login expired" in capsys.readouterr().out
+        assert s._get_sequence_data()["activeAccountNumber"] == 3
+
+    def test_rotation_with_only_dead_targets_stays_put(self, temp_home, capsys):
+        s = self._setup(temp_home)
+        self._seed(s, 1, "a@example.com")
+        self._seed(s, 2, "b@example.com")
+        self._make_live(temp_home, "a@example.com", 1)
+
+        with patch.object(s, "_slot_token_dead", return_value=True), \
+                patch.object(s, "list_accounts"):
+            s.switch()
+
+        assert "No other accounts have valid stored credentials" in (
+            capsys.readouterr().out
+        )
+        assert s._get_sequence_data()["activeAccountNumber"] == 1
 
     def test_best_strategy_ignores_disabled_candidate(self, temp_home):
         """The only other switchable account is disabled → no candidate."""

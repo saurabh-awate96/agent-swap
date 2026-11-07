@@ -145,6 +145,15 @@ def _freeze_real_store_specs() -> tuple[tuple[Path, bool], ...]:
             # directory exists, so not one mkdir is attempted above them.
             (_paths.get_default_claude_config_home() / "projects", True),
             (_paths.get_claude_config_home() / "projects", True),
+            # Codex's home (`cswap codex` reads and swaps its auth.json): all
+            # of it is the developer's own Codex state, at any depth. The
+            # env spelling is only present in the ambient snapshot.
+            (Path.home() / ".codex", True),
+            *(
+                [(Path(os.environ["CODEX_HOME"]), True)]
+                if os.environ.get("CODEX_HOME")
+                else []
+            ),
         )
 
     ambient_specs = _resolve()
@@ -163,7 +172,8 @@ def _freeze_real_store_specs() -> tuple[tuple[Path, bool], ...]:
                     os.environ[k] = v
 
     default_specs = _resolve_with_cleared(
-        "CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR", "XDG_DATA_HOME"
+        "CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR", "XDG_DATA_HOME",
+        "CODEX_HOME",
     )
     # C-0: a THIRD snapshot, additive to (not replacing) default_specs above.
     # The mandated review/CI isolation recipe sets HOME/USERPROFILE (and
@@ -183,7 +193,7 @@ def _freeze_real_store_specs() -> tuple[tuple[Path, bool], ...]:
     # used to protect.
     home_default_specs = _resolve_with_cleared(
         "CLAUDE_CONFIG_DIR", "CLAUDE_SECURESTORAGE_CONFIG_DIR", "XDG_DATA_HOME",
-        "HOME", "USERPROFILE",
+        "CODEX_HOME", "HOME", "USERPROFILE",
     )
 
     seen: set[Path] = set()
@@ -481,6 +491,9 @@ def _isolate_real_home(request, tmp_path_factory, monkeypatch):
     monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
     monkeypatch.delenv("CLAUDE_SECURESTORAGE_CONFIG_DIR", raising=False)
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
+    # Same reason: it bypasses $HOME, so an exported one would point
+    # `cswap codex` at the developer's real ~/.codex. Codex tests set their own.
+    monkeypatch.delenv("CODEX_HOME", raising=False)
     # The menu bar's wrapper .app lives in /Applications, outside $HOME, and
     # launch_agent.uninstall() deletes it: on a developer's Mac the real one
     # may be the very app drawing the menu bar while the suite runs.

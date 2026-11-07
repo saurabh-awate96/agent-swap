@@ -26,6 +26,7 @@ from claude_swap.credentials import (
     CLAUDE_CODE_MANAGED_KEYCHAIN_SERVICE,
     CredentialStore,
 )
+from claude_swap.exceptions import CredentialWriteError
 from claude_swap.models import Platform
 from claude_swap.session import keychain_service_name
 
@@ -272,3 +273,59 @@ class TestSecureStorageOverride:
         store = CredentialStore(_Host(tmp_path / "backups"))
         assert store._read_active_credentials().value == SECURE_PROFILE_CREDS
         assert seen == [keychain_service_name(str(secure))]
+
+
+class TestLiveWriteStaysOnOneProfile:
+    """Reads honour CLAUDE_CONFIG_DIR on macOS, so writes must too: a write
+    to the default item under a custom profile leaves that profile stale."""
+
+    def test_custom_config_dir_refuses_the_write(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        custom = tmp_path / "custom-profile"
+        custom.mkdir()
+        monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(custom))
+        monkeypatch.delenv("CLAUDE_SECURESTORAGE_CONFIG_DIR", raising=False)
+
+        calls: list[str] = []
+        monkeypatch.setattr(
+            "claude_swap.macos_keychain.set_password",
+            lambda service, *a, **k: calls.append(service),
+        )
+        monkeypatch.setattr(
+            "claude_swap.macos_keychain.delete_password",
+            lambda service, *a, **k: calls.append(service),
+        )
+
+        store = CredentialStore(_Host(tmp_path / "backups"))
+        with pytest.raises(CredentialWriteError, match="CLAUDE_CONFIG_DIR"):
+            store._write_credentials(CUSTOM_PROFILE_CREDS)
+
+        assert calls == []
+        assert not (custom / ".credentials.json").exists()
+
+    def test_unset_config_dir_still_writes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ):
+        home = tmp_path / "home"
+        home.mkdir()
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.setenv("USERPROFILE", str(home))
+        monkeypatch.setattr("pathlib.Path.home", lambda: home)
+        monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+        monkeypatch.delenv("CLAUDE_SECURESTORAGE_CONFIG_DIR", raising=False)
+
+        calls: list[tuple[str, str]] = []
+        monkeypatch.setattr(
+            "claude_swap.macos_keychain.set_password",
+            lambda service, account, secret, *a, **k: calls.append((service, secret)),
+        )
+        monkeypatch.setattr(
+            "claude_swap.macos_keychain.delete_password",
+            lambda *a, **k: None,
+        )
+
+        store = CredentialStore(_Host(tmp_path / "backups"))
+        store._write_credentials(CUSTOM_PROFILE_CREDS)
+
+        assert calls == [(CLAUDE_CODE_KEYCHAIN_SERVICE, CUSTOM_PROFILE_CREDS)]

@@ -29,6 +29,18 @@ class TestReadCache:
         result = read_cache(cache_file, ttl=60)
         assert result is MISSING
 
+    def test_returns_missing_when_stamped_in_the_future(self, tmp_path):
+        # The clock stepped back since the write, so the age is negative. An
+        # unbounded check reads that as fresh and never expires the entry.
+        cache_file = tmp_path / "test.json"
+        cache_file.write_text(json.dumps({
+            "timestamp": time.time() + 3600,
+            "data": {"key": "value"},
+        }))
+
+        result = read_cache(cache_file, ttl=60)
+        assert result is MISSING
+
     def test_returns_missing_for_missing_file(self, tmp_path):
         result = read_cache(tmp_path / "nonexistent.json", ttl=60)
         assert result is MISSING

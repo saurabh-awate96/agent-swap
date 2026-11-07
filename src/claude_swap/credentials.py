@@ -21,7 +21,6 @@ import base64
 import json
 import logging
 import os
-import sys
 import threading
 import time
 from pathlib import Path
@@ -892,6 +891,15 @@ class CredentialStore:
         Raises:
             CredentialWriteError: If writing credentials fails.
         """
+        if self._host.platform == Platform.MACOS and (
+            CLAUDE_CODE_KEYCHAIN_SERVICE not in _active_oauth_keychain_services()
+        ):
+            # Reads follow CLAUDE_CONFIG_DIR to its hashed item; writes would hit the default item.
+            raise CredentialWriteError(
+                "cswap cannot safely switch while CLAUDE_CONFIG_DIR points at a custom "
+                "profile: writes would go to the default Claude Code Keychain item, not "
+                "the one this profile reads. Unset CLAUDE_CONFIG_DIR, or use 'cswap run'."
+            )
         if looks_like_api_key(credentials):
             self._write_managed_credentials(credentials.strip())
         else:

@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import threading
 from dataclasses import replace
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -480,6 +482,42 @@ class TestDecisionTable:
         switch = next(e for e in harness.events if isinstance(e, SwitchEvent))
         assert switch.trigger == "at-limit"
         assert harness.active_number() == 2
+
+    def test_backward_clock_step_does_not_hold_the_cooldown(self, harness):
+        # `lastSwitchAt` is wall time. After a VM resume or an NTP correction
+        # the elapsed time is negative, which an unbounded check reads as
+        # "inside the cooldown" for the whole length of the step — so
+        # proactive switching froze until the clock caught up.
+        harness.engine._mutate_state(
+            lambda s: s.update(lastSwitchAt=harness.clock() + 3600)
+        )
+        outcome = harness.tick_with_usage({
+            "1": _usage(95), "2": _usage(10), "3": _usage(50),
+        })
+        assert outcome is TickOutcome.SWITCHED
+
+    def test_manual_switch_during_the_tick_is_not_overridden(self, harness):
+        # The engine decides "leave 1 for 2" on the account it read at the top
+        # of the tick; freshening the target takes seconds. A manual
+        # `cswap switch` in that gap takes no state lock, so the stale decision
+        # used to be applied anyway, moving the user off the account they had
+        # just chosen (3) onto one picked for the account they had left (1).
+        def user_switches_to_3(num, email):
+            harness.make_live("c@example.com", 3)
+            return "ok"
+
+        with patch.object(
+            harness.engine, "_freshen_target", side_effect=user_switches_to_3
+        ):
+            outcome = harness.tick_with_usage({
+                "1": _usage(95), "2": _usage(10), "3": _usage(50),
+            })
+
+        assert outcome is TickOutcome.NO_ACTION
+        assert [e.reason for e in harness.events if isinstance(e, NoSwitchEvent)] == [
+            "active-changed"
+        ]
+        assert harness.switcher.current_account_number() == "3"
 
     def test_cooldown_expires(self, harness):
         harness.engine._mutate_state(
@@ -7431,3 +7469,388 @@ class TestHeaderProbeReadings:
         })
         assert outcome is TickOutcome.SWITCHED
         assert h.active_number() == 3
+
+
+class TestOnDemandRefreshOfExpiredIdleCandidates:
+    """Background collection never refreshes idle slots, so when the active
+    account must be left and every candidate reads "token expired", the engine
+    refreshes them itself (through the consume gate), once each, until one
+    ranks."""
+
+    def _run(self, temp_home, grants):
+        """Active 1 at its limit; idle 2 and 3 hold expired tokens.
+
+        ``grants[num]`` is the usage that slot reads once refreshed, or
+        ``"invalid_grant"`` for a dead lineage.
+        """
+        h = EngineHarness(temp_home)
+        h.seed(1, "a@example.com")
+        h.seed(2, "b@example.com", expires_at=1)
+        h.seed(3, "c@example.com", expires_at=1)
+        h.make_live("a@example.com", 1)
+        h.refreshed, h.gate_calls = set(), []
+
+        def gate(num, email, snapshot):
+            h.gate_calls.append(num)
+            if grants[num] == "invalid_grant":
+                return oauth.RefreshOutcome(None, "invalid_grant")
+            fresh = json.dumps({"claudeAiOauth": {
+                "accessToken": f"sk-new-{num}", "refreshToken": f"rt-new-{num}",
+                "expiresAt": 9999999999000,
+            }})
+            h.switcher._write_account_credentials(num, email, fresh)
+            h.refreshed.add(num)
+            return oauth.RefreshOutcome(fresh, None)
+
+        def collect(fetch=None, **_kw):
+            out = {"1": _entry_for(_usage(100), h.clock.now)}
+            for num in ("2", "3"):
+                out[num] = _entry_for(
+                    grants[num] if num in h.refreshed else USAGE_TOKEN_EXPIRED,
+                    h.clock.now,
+                )
+            return out
+
+        with patch.object(h.switcher, "consume_backup_grant", side_effect=gate), \
+             patch.object(h.switcher, "usage_entries_by_account", side_effect=collect):
+            h.outcome = h.engine.tick()
+        return h
+
+    def test_at_limit_refreshes_expired_candidates_and_switches_to_the_best(
+        self, temp_home
+    ):
+        h = self._run(temp_home, {"2": _usage(100), "3": _usage(20)})
+        assert h.outcome is TickOutcome.SWITCHED
+        assert h.active_number() == 3
+        assert h.gate_calls == ["2", "3"]  # each once; the switch did not re-refresh
+
+    def test_stops_refreshing_once_a_candidate_ranks(self, temp_home):
+        h = self._run(temp_home, {"2": _usage(20), "3": _usage(10)})
+        assert h.active_number() == 2
+        assert h.gate_calls == ["2"]
+
+    def test_invalid_grant_quarantines_and_tries_the_next_candidate(
+        self, temp_home
+    ):
+        h = self._run(temp_home, {"2": "invalid_grant", "3": _usage(20)})
+        assert h.active_number() == 3
+        assert h.gate_calls == ["2", "3"]
+        assert "2" in h.state()["quarantine"]
+        assert "3" not in h.state().get("quarantine", {})
+
+    def test_all_dead_reports_no_viable_target_without_looping(self, temp_home):
+        h = self._run(temp_home, {"2": "invalid_grant", "3": "invalid_grant"})
+        assert h.outcome is TickOutcome.BLOCKED
+        assert h.active_number() == 1
+        assert h.gate_calls == ["2", "3"]
+        assert set(h.state()["quarantine"]) == {"2", "3"}
+
+    def test_dry_run_refreshes_nothing(self, temp_home):
+        h = EngineHarness(temp_home)
+        h.seed(1, "a@example.com")
+        h.seed(2, "b@example.com", expires_at=1)
+        h.make_live("a@example.com", 1)
+        h.engine.dry_run = True
+        with patch.object(h.switcher, "consume_backup_grant") as gate:
+            h.tick_with_usage({"1": _usage(100), "2": USAGE_TOKEN_EXPIRED})
+        gate.assert_not_called()
+
+
+class TestKeepalive:
+    """``autoswitch.keepalive``: a tiny real ``claude -p`` request per idle
+    slot, so the genuine client refreshes its own token. The subprocess is
+    always mocked: no test may start a real ``claude``."""
+
+    ROTATED = json.dumps({"claudeAiOauth": {
+        "accessToken": "rotated-access", "refreshToken": "rotated-refresh",
+        "expiresAt": 9_999_999_999_999,
+    }})
+    USAGE = {"1": _usage(10), "2": _usage(10), "3": _usage(10)}
+
+    @staticmethod
+    def _soon(h: EngineHarness, minutes: float = 30) -> int:
+        return int(h.clock.now * 1000 + minutes * 60_000)
+
+    def _make(self, temp_home, *, enabled: bool = True, expires: int | None = None):
+        """Active 1; idle 2 and 3 with tokens near expiry unless told otherwise."""
+        h = EngineHarness(temp_home, keepalive=enabled)
+        soon = self._soon(h) if expires is None else expires
+        h.seed(1, "a@example.com", expires_at=self._soon(h, 600))
+        h.seed(2, "b@example.com", expires_at=soon)
+        h.seed(3, "c@example.com", expires_at=soon)
+        h.make_live("a@example.com", 1)
+        self._install_fakes(h)
+        return h
+
+    def _install_fakes(self, h: EngineHarness, *, child=None, which="/fake/claude") -> None:
+        self._stop()
+        h.runs = []    # (argv, kwargs) of every child
+        h.setups = []  # (identifier, share, share_history, pre_refresh)
+        h.state_during_run = None
+
+        def fake_setup(mgr, identifier, share, share_history=None, pre_refresh=True):
+            h.setups.append((identifier, share, share_history, pre_refresh))
+            email = h.switcher.account_email(identifier)
+            d = h.switcher._session_dir(identifier, email)
+            d.mkdir(parents=True, exist_ok=True)
+            creds = h.switcher.read_account_credentials(identifier, email)
+            (d / ".credentials.json").write_text(creds)
+            (d / ".claude.json").write_text(json.dumps({"oauthAccount": {
+                "emailAddress": email, "accountUuid": f"uuid-{identifier}",
+            }}))
+            return d, identifier, email
+
+        def fake_run(argv, **kwargs):
+            h.runs.append((list(argv), kwargs))
+            h.state_during_run = h.state()
+            if child is not None:
+                return child(argv, kwargs)
+            d = Path(kwargs["env"]["CLAUDE_CONFIG_DIR"])
+            (d / ".credentials.json").write_text(self.ROTATED)  # claude rotated it
+            return SimpleNamespace(returncode=0)
+
+        self._patches = [
+            patch("claude_swap.session.SessionManager.setup_session", fake_setup),
+            patch("claude_swap.autoswitch.spawn.run", fake_run),
+            patch("claude_swap.autoswitch.shutil.which", lambda name: which),
+        ]
+        for p in self._patches:
+            p.start()
+
+    def _stop(self) -> None:
+        for p in getattr(self, "_patches", []):
+            p.stop()
+        self._patches = []
+
+    @pytest.fixture(autouse=True)
+    def _stop_patches(self):
+        yield
+        self._stop()
+
+    def _creds(self, h, num: str) -> str:
+        return h.switcher.read_account_credentials(num, h.switcher.account_email(num))
+
+    def _keepalives(self, h):
+        return [e for e in h.events if e.kind == "keepalive"]
+
+    def _edit_account(self, h, num: str, **fields) -> None:
+        data = h.switcher._get_sequence_data()
+        data["accounts"][num].update(fields)
+        h.switcher._write_json(h.switcher.sequence_file, data)
+
+    # -- gating ---------------------------------------------------------------
+
+    def test_default_is_off_and_spawns_nothing(self, temp_home):
+        assert AutoSwitchSettings().keepalive is False
+        h = self._make(temp_home, enabled=False)
+        h.tick_with_usage(self.USAGE)
+        assert h.runs == [] and h.setups == []
+        assert "lastKeepaliveAt" not in h.state()
+
+    def test_picks_one_eligible_idle_slot_per_tick(self, temp_home):
+        h = self._make(temp_home)
+        h.tick_with_usage(self.USAGE)
+        assert len(h.runs) == 1
+        (event,) = self._keepalives(h)
+        assert event.account == {"number": 2, "email": "b@example.com"}
+        assert event.outcome == "ok"
+        h.tick_with_usage(self.USAGE)  # next tick: slot 3, slot 2 is inside its 8h
+        assert [e.account["number"] for e in self._keepalives(h)] == [2, 3]
+        h.tick_with_usage(self.USAGE)  # both attempted: nothing left
+        assert len(h.runs) == 2
+
+    def test_skips_active_slot(self, temp_home):
+        h = self._make(temp_home)
+        h.seed(1, "a@example.com", expires_at=1)  # active and expired
+        h.tick_with_usage(self.USAGE)
+        h.tick_with_usage(self.USAGE)
+        assert [s[0] for s in h.setups] == ["2", "3"]
+
+    def test_skips_disabled_slot(self, temp_home):
+        h = self._make(temp_home)
+        self._edit_account(h, "2", disabled=True)
+        h.tick_with_usage(self.USAGE)
+        assert [s[0] for s in h.setups] == ["3"]
+
+    def test_skips_quarantined_slot(self, temp_home):
+        h = self._make(temp_home)
+        h.engine._quarantine("2", "b@example.com", "dead")
+        h.tick_with_usage(self.USAGE)
+        assert [s[0] for s in h.setups] == ["3"]
+
+    def test_skips_api_key_slot(self, temp_home):
+        h = self._make(temp_home)
+        self._edit_account(h, "2", kind="api_key")
+        h.tick_with_usage(self.USAGE)
+        assert [s[0] for s in h.setups] == ["3"]
+
+    def test_skips_setup_token_slot(self, temp_home):
+        h = self._make(temp_home)
+        h.switcher._write_account_credentials("2", "b@example.com", json.dumps(
+            {"claudeAiOauth": {"accessToken": "setup-token-value",
+                               "expiresAt": self._soon(h)}}))
+        h.tick_with_usage(self.USAGE)
+        assert [s[0] for s in h.setups] == ["3"]
+
+    def test_skips_slot_with_live_run_session(self, temp_home):
+        h = self._make(temp_home)
+        live = h.switcher.backup_dir / "sessions" / "2-b_example.com" / "sessions"
+        live.mkdir(parents=True)
+        (live / f"{os.getpid()}.json").write_text(json.dumps({"pid": os.getpid()}))
+        h.tick_with_usage(self.USAGE)
+        assert [s[0] for s in h.setups] == ["3"]
+
+    def test_skips_token_not_near_expiry(self, temp_home):
+        h = self._make(temp_home)
+        h.seed(2, "b@example.com", expires_at=self._soon(h, 61))
+        h.seed(3, "c@example.com", expires_at=self._soon(h, 59))
+        h.tick_with_usage(self.USAGE)
+        assert [s[0] for s in h.setups] == ["3"]
+
+    def test_already_expired_token_qualifies(self, temp_home):
+        h = self._make(temp_home, expires=1)
+        h.tick_with_usage(self.USAGE)
+        assert [s[0] for s in h.setups] == ["2"]
+
+    def test_attempt_within_8h_blocks_then_expires(self, temp_home):
+        h = self._make(temp_home)
+        h.seed(3, "c@example.com", expires_at=self._soon(h, 600))  # only 2 qualifies
+        h.tick_with_usage(self.USAGE)
+        assert len(h.runs) == 1
+        h.clock.advance(8 * 3600 - 1)
+        h.seed(2, "b@example.com", expires_at=1)
+        h.tick_with_usage(self.USAGE)
+        assert len(h.runs) == 1
+        h.clock.advance(2)
+        h.tick_with_usage(self.USAGE)
+        assert len(h.runs) == 2
+
+    def test_backward_clock_step_does_not_suppress(self, temp_home):
+        h = self._make(temp_home, expires=1)
+        h.seed(3, "c@example.com", expires_at=self._soon(h, 600))
+        h.tick_with_usage(self.USAGE)
+        h.seed(2, "b@example.com", expires_at=1)  # the ping adopted a fresh token
+        h.clock.advance(-3600)
+        h.tick_with_usage(self.USAGE)
+        assert len(h.runs) == 2
+
+    # -- the ping -------------------------------------------------------------
+
+    def test_child_argv_env_and_profile(self, temp_home):
+        h = self._make(temp_home)
+        h.tick_with_usage(self.USAGE)
+        argv, kwargs = h.runs[0]
+        assert argv == [
+            "/fake/claude", "-p", ".", "--model", "haiku", "--no-session-persistence",
+        ]
+        assert not {"-c", "--continue", "--resume", "-r"} & set(argv)
+        profile = h.switcher._session_dir("2", "b@example.com")
+        assert kwargs["env"]["CLAUDE_CONFIG_DIR"] == str(profile)
+        assert kwargs["env"]["CLAUDE_CONFIG_DIR"] != str(temp_home / ".claude")
+        assert not {"ANTHROPIC_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"} & set(kwargs["env"])
+        assert kwargs["stdin"] is subprocess.DEVNULL
+        assert kwargs["stdout"] is subprocess.DEVNULL
+        assert kwargs["stderr"] is subprocess.DEVNULL
+        assert kwargs["timeout"] == 90
+
+    def test_profile_is_built_without_sharing_or_a_cswap_refresh(self, temp_home):
+        h = self._make(temp_home)
+        h.tick_with_usage(self.USAGE)
+        assert h.setups == [("2", False, False, False)]
+
+    def test_no_claude_on_path_reports_and_runs_nothing(self, temp_home):
+        h = self._make(temp_home)
+        self._install_fakes(h, which=None)
+        h.tick_with_usage(self.USAGE)
+        assert h.runs == []
+        (event,) = self._keepalives(h)
+        assert event.outcome == "skipped-no-claude"
+        assert "2" in h.state()["lastKeepaliveAt"]  # not retried for 8h either
+
+    def test_credential_adopted_back_after_success(self, temp_home):
+        h = self._make(temp_home)
+        h.tick_with_usage(self.USAGE)
+        assert self._creds(h, "2") == self.ROTATED
+
+    def test_credential_adopted_back_even_when_child_fails(self, temp_home):
+        h = self._make(temp_home)
+
+        def failing(argv, kwargs):
+            d = Path(kwargs["env"]["CLAUDE_CONFIG_DIR"])
+            (d / ".credentials.json").write_text(self.ROTATED)
+            return SimpleNamespace(returncode=1)
+
+        self._install_fakes(h, child=failing)
+        h.tick_with_usage(self.USAGE)
+        assert self._creds(h, "2") == self.ROTATED
+        (event,) = self._keepalives(h)
+        assert event.outcome == "failed"
+
+    def test_credential_adopted_back_even_when_child_times_out(self, temp_home):
+        h = self._make(temp_home)
+
+        def hangs(argv, kwargs):
+            d = Path(kwargs["env"]["CLAUDE_CONFIG_DIR"])
+            (d / ".credentials.json").write_text(self.ROTATED)
+            raise subprocess.TimeoutExpired(argv, 90)
+
+        self._install_fakes(h, child=hangs)
+        h.tick_with_usage(self.USAGE)
+        assert self._creds(h, "2") == self.ROTATED
+        (event,) = self._keepalives(h)
+        assert event.outcome == "failed"
+
+    def test_failure_never_quarantines_and_is_not_retried(self, temp_home):
+        h = self._make(temp_home)
+        h.seed(3, "c@example.com", expires_at=self._soon(h, 600))
+        self._install_fakes(h, child=lambda a, k: SimpleNamespace(returncode=1))
+        h.tick_with_usage(self.USAGE)
+        h.tick_with_usage(self.USAGE)
+        assert len(h.runs) == 1
+        assert "quarantine" not in h.state()
+        assert "account-quarantined" not in h.kinds()
+
+    def test_attempt_is_recorded_before_the_child_runs(self, temp_home):
+        h = self._make(temp_home)
+        h.tick_with_usage(self.USAGE)
+        assert h.state_during_run["lastKeepaliveAt"]["2"] == h.clock.now
+
+    def test_child_launch_error_is_an_event_not_an_exception(self, temp_home):
+        h = self._make(temp_home)
+
+        def boom(argv, kwargs):
+            raise OSError("exec format error")
+
+        self._install_fakes(h, child=boom)
+        assert h.tick_with_usage(self.USAGE) is not TickOutcome.ERROR
+        (event,) = self._keepalives(h)
+        assert event.outcome == "failed"
+
+    def test_dry_run_only_reports(self, temp_home):
+        h = self._make(temp_home)
+        h.engine.dry_run = True
+        before = {n: self._creds(h, n) for n in "123"}
+        h.tick_with_usage(self.USAGE)
+        h.tick_with_usage(self.USAGE)
+        assert h.runs == [] and h.setups == []
+        assert [e.outcome for e in self._keepalives(h)] == ["dry-run", "dry-run"]
+        assert [e.account["number"] for e in self._keepalives(h)] == [2, 3]
+        assert "lastKeepaliveAt" not in h.state()
+        assert before == {n: self._creds(h, n) for n in "123"}
+
+    def test_no_token_value_reaches_events_or_logs(self, temp_home, caplog):
+        h = self._make(temp_home)
+        with caplog.at_level("DEBUG", logger="claude-swap"):
+            h.tick_with_usage(self.USAGE)
+        blob = json.dumps([e.to_json() for e in h.events]) + caplog.text
+        blob += " ".join(e.human() for e in h.events)
+        for secret in ("sk-2", "rt-2", "rotated-access", "rotated-refresh"):
+            assert secret not in blob
+
+    def test_event_json_shape_is_additive(self, temp_home):
+        h = self._make(temp_home)
+        h.tick_with_usage(self.USAGE)
+        payload = self._keepalives(h)[0].to_json()
+        assert payload["event"] == "keepalive"
+        assert payload["account"] == {"number": 2, "email": "b@example.com"}
+        assert payload["outcome"] == "ok"

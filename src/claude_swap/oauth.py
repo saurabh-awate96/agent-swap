@@ -204,12 +204,23 @@ def try_refresh_oauth_credentials(
             resp_data = json.loads(resp.read().decode())
 
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
-        oauth["accessToken"] = resp_data["access_token"]
-        oauth["expiresAt"] = now_ms + resp_data["expires_in"] * 1000
+        # Adopt the rotated refresh token BEFORE anything that can raise. The
+        # server has already invalidated the one we sent, so a successor lost
+        # to a parse error logs the account out for good (and strikes the slot
+        # on the retry). `expires_in` is the fragile field — absent or
+        # non-numeric in an odd 200 — so it must not be the thing that throws.
+        # shortcut: a 200 with no `access_token` at all still loses the
+        # successor; fix by persisting from the except branch if that is ever
+        # seen in the wild.
         if resp_data.get("refresh_token"):
             oauth["refreshToken"] = resp_data["refresh_token"]
         if resp_data.get("scope"):
             oauth["scopes"] = resp_data["scope"].split()
+        expires_in = resp_data.get("expires_in")
+        if not isinstance(expires_in, (int, float)) or isinstance(expires_in, bool):
+            expires_in = 3600
+        oauth["accessToken"] = resp_data["access_token"]
+        oauth["expiresAt"] = now_ms + int(expires_in * 1000)
 
         data["claudeAiOauth"] = oauth
         return RefreshOutcome(
@@ -702,9 +713,12 @@ def _classify_usage_error(e: Exception) -> tuple[str, float | None]:
         raw = e.headers.get("Retry-After") if e.headers else None
         if raw:
             try:
-                retry_after = max(0.0, float(raw.strip()))
+                value = float(raw.strip())
             except ValueError:
-                pass
+                value = math.nan
+            # inf/nan are absent; a huge value is capped so timedelta() cannot overflow.
+            if math.isfinite(value):
+                retry_after = min(max(0.0, value), 7 * 24 * 3600.0)
         return f"http-{e.code}", retry_after
     if isinstance(e, TimeoutError):  # socket.timeout is an alias since 3.10
         return "timeout", None

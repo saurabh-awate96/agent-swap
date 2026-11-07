@@ -3,26 +3,52 @@
 
 # claude-swap
 
-Multi-account switcher for Claude Code. Easily switch between multiple Claude accounts without logging out, or let it switch for you before you hit a rate limit. Track usage for every account in a live dashboard, and run accounts in parallel. Works with both the Claude Code CLI and the VS Code extension.
+**Every Claude and Codex account you own, one keystroke apart.**
+
+Switch between your accounts without logging out, let it switch for you before you hit a rate limit, watch every account's usage in a terminal or browser dashboard, and run accounts side by side. Works with the Claude Code CLI, the VS Code extension and the Codex CLI.
+
+[![CI](https://github.com/saurabh-awate96/claude-swap/actions/workflows/ci.yml/badge.svg)](https://github.com/saurabh-awate96/claude-swap/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-informational)](LICENSE)
+![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-informational)
+![macOS | Linux | Windows](https://img.shields.io/badge/macOS%20%7C%20Linux%20%7C%20Windows-supported-informational)
+
+<img src="assets/gui.png" width="760" alt="cswap web dashboard: Claude accounts with 5h and 7d usage bars and reset times, Codex accounts underneath, in the same layout as the terminal dashboard">
+
+## What you get
+
+- **Switch** Claude Code accounts in one command, with no logout. Pick by number, email or alias, or let `--strategy best` choose the one with the most quota left.
+- **Auto-switch** moves you to the next account before the active one hits its 5-hour or weekly limit, with a cooldown so it never flaps. [How the rules work](docs/auto-switch.md)
+- **Codex too.** `cswap codex` switches OpenAI Codex CLI logins the same way, from local files, with no request to OpenAI. [Details](docs/codex.md)
+- **Two dashboards.** A terminal one (`cswap`) and a web one (`cswap gui`) that look the same: usage bars, reset countdowns, your switch line. [How the web one is secured](docs/gui.md)
+- **Guided setup.** One install line, then `cswap setup` walks you through saving every login you own.
+- **Careful with your logins.** One live copy of each, atomic writes, nothing refreshed in the background for idle accounts. [What it stores and sends](docs/safety.md)
 
 ## Installation
 
-### Using uv (recommended)
+### One line (macOS / Linux)
 
 ```bash
-uv tool install claude-swap
+curl -LsSf https://raw.githubusercontent.com/saurabh-awate96/claude-swap/main/install.sh | sh
 ```
 
-### Using pipx
+Installs cswap with uv (or pipx if you have it; it fetches uv from astral.sh if you have neither), adds it to your PATH, then opens [`cswap setup`](#guided-setup). From a clone, run `./install.sh` instead. Re-running it upgrades. `CSWAP_NO_SETUP=1` skips the guided screen; `CSWAP_SPEC` installs from a different path or URL.
+
+Windows (PowerShell, not tested yet): `irm https://raw.githubusercontent.com/saurabh-awate96/claude-swap/main/install.ps1 | iex`
+
+### With uv or pipx
 
 ```bash
-pipx install claude-swap
+uv tool install git+https://github.com/saurabh-awate96/claude-swap
+# or
+pipx install git+https://github.com/saurabh-awate96/claude-swap
 ```
+
+This is a fork of [realiti4/claude-swap](https://github.com/realiti4/claude-swap). The `claude-swap` on PyPI is the upstream release and does not have `setup`, `gui`, `codex` or `onboard`, so install from this repository.
 
 ### From source
 
 ```bash
-git clone https://github.com/realiti4/claude-swap.git
+git clone https://github.com/saurabh-awate96/claude-swap.git
 cd claude-swap
 uv sync
 uv run cswap help
@@ -37,7 +63,37 @@ uv tool upgrade claude-swap
 pipx upgrade claude-swap
 ```
 
+Installed from a git URL or a folder, it upgrades from that same source, and the "newer version on PyPI" notice stays off, because PyPI's release is not yours.
+
 ## Usage
+
+### Guided setup
+
+```bash
+cswap setup
+```
+
+```
+  cswap · setup
+  Every Claude and Codex account you own, one keystroke apart.
+
+  ✓ Claude Code   2.1.319 (Claude Code)
+  ✓ Codex CLI     codex-cli 0.167.0
+
+  ○ Claude logins none yet
+  ○ Codex logins  none yet
+
+  ↑/↓ and Enter, or press a number
+  ❯ 1  Save the account I'm logged into right now
+    2  Add more Claude accounts (guided, one login each)
+    3  Save my Codex login
+    4  Auto-switch: choose when to hop to the next account
+    5  Open the web dashboard
+    6  Open the terminal dashboard
+    q  Finish
+```
+
+One screen that checks Claude Code and Codex, shows how many logins you have saved, and walks you through the rest: save the login you are on, add more Claude accounts one browser login at a time, save your Codex login, pick the usage % where auto-switch hops, open the web or terminal dashboard. Arrow keys and Enter, or press a number. It only calls the commands below, so it is safe to re-run.
 
 ### Add your first account
 
@@ -56,6 +112,12 @@ cswap add
 ```
 
 Do not run `/logout` first: current Claude Code may revoke the refresh token stored for the account you are leaving.
+
+Have several accounts to bring in? `cswap onboard` does the loop for you: it asks for each email, runs Claude Code's own `claude auth login --email …` (you sign in in the browser), and saves that login. It never logs anything out.
+
+```bash
+cswap onboard
+```
 
 ### Switch accounts
 
@@ -119,6 +181,7 @@ The weekly ones exist because weekly quota left unused at its reset is lost.
 
 **Good to know**
 
+- **Opt-in keepalive.** `cswap config set autoswitch.keepalive true` makes auto-switch send one tiny real `claude` request per idle account (at most one per 8 hours each) so its login and usage stay warm. It uses a little quota, starts that account's 5-hour window, leaves no chat history, and whether scheduled pings are acceptable use is your call. Off by default; details in [docs/auto-switch.md](docs/auto-switch.md).
 - **Thresholds are switch-away lines, not hard caps.** With nothing under its line, or the active account at its limit, auto-switch still lands somewhere rather than stall. `priority-consume-first` is the exception: it never lands on an account at or over its line, so it holds and keeps polling.
 - A cooldown (default 5 min) and a hysteresis margin stop it flip-flopping between accounts near the threshold.
 - `--weekly-threshold 97` gives the 7-day and per-model windows their own line, so the weekly budget can run higher than the 5-hour window. `--threshold`, and any per-account threshold, then governs the 5-hour window only.
@@ -138,7 +201,7 @@ Defaults like the threshold and cooldown are configurable with `cswap config set
 
 </details>
 
-The exact rules (margins, landing, polling cadence, tier handling) are in [docs/auto-switch.md](https://github.com/realiti4/claude-swap/blob/main/docs/auto-switch.md).
+The exact rules (margins, landing, polling cadence, tier handling) are in [docs/auto-switch.md](docs/auto-switch.md).
 
 ### Run multiple accounts at the same time (session mode)
 
@@ -191,6 +254,18 @@ Run `cswap` on its own (or `cswap tui`) for the full-screen dashboard: live usag
 
 <img src="assets/tui-watch.png" width="760" alt="cswap watch — live 5h/7d usage bars for every account, with reset times and the active account marked">
 
+### Web dashboard (GUI)
+
+Prefer a window to a terminal? `cswap gui` opens a dashboard in your browser, laid out like the terminal dashboard: every Claude account with its 5-hour and 7-day bars, reset countdowns and your switch line, and your Codex accounts underneath.
+
+```bash
+cswap gui                # read-only: look, don't touch
+cswap gui --write        # also switch (Claude and Codex), enable/disable, and add the current login
+cswap gui --no-open      # print the link instead of opening a browser
+```
+
+It listens on `127.0.0.1` only, on a random port, and the link carries a one-time token that changes on every run. Only requests from the page itself are accepted, and nothing is changed unless you started it with `--write`. On a shared machine use `--no-open` and paste the link yourself.
+
 ### Refresh expired tokens
 
 If an account's token expires, log back into Claude Code with that account and re-run:
@@ -202,6 +277,26 @@ cswap add
 This will update the stored credentials without creating a duplicate.
 
 If the refresh token itself has died (auto-switch quarantines and reports such an account), log in with it and re-run `cswap add --slot N`, or replace its stored credentials from a known-good export: a plain `cswap import backup.cswap` replaces dead-token slots on its own (a stale export can carry an already-superseded token).
+
+### OpenAI Codex CLI accounts
+
+`cswap codex` switches the [Codex CLI](https://github.com/openai/codex) login (`~/.codex/auth.json`, or `$CODEX_HOME`). It is separate from your Claude accounts and works entirely from local files: it makes no request to OpenAI, and never runs `codex login` or `codex logout`.
+
+```bash
+cswap codex add                    # store the login Codex is using right now
+codex login                        # ...then log in as the next account
+cswap codex add --alias work       # ...and store that one too
+cswap codex list                   # accounts, with the last 5h / weekly usage Codex recorded
+cswap codex switch                 # rotate; or: switch work | switch 1
+cswap codex switch --strategy best # the account with the most quota left
+cswap codex status                 # which stored account is live
+cswap codex remove work
+```
+
+- **Always `cswap codex add` the current login before running `codex login` for another.** A login cswap does not know is refused, never overwritten.
+- **Never `codex logout` a stored account.** It revokes the login on OpenAI's side, so the stored copy stops working.
+- **Running Codex sessions keep their account until restarted.** A switch affects Codex processes started afterwards.
+- Usage comes from Codex's own session files (`sessions/**/rollout-*.jsonl`), so an idle account shows the numbers from its last session. Only `cli_auth_credentials_store = "file"` (the default) is supported.
 
 ### Other commands
 
@@ -290,7 +385,7 @@ cswap menubar --uninstall-service   # stop it and remove the LaunchAgent
 cswap menubar --foreground          # run attached to this terminal, for debugging
 ```
 
-`cswap upgrade` restarts a running menu bar when the build changed. The wrapper app in `/Applications`, file locations, environment handling and the Login Items switch are in [docs/menubar.md](https://github.com/realiti4/claude-swap/blob/main/docs/menubar.md).
+`cswap upgrade` restarts a running menu bar when the build changed. The wrapper app in `/Applications`, file locations, environment handling and the Login Items switch are in [docs/menubar.md](docs/menubar.md).
 
 </details>
 
@@ -385,7 +480,7 @@ Every payload carries a `schemaVersion` (currently `1`); on a handled error stdo
 
 `cswap auto --json` emits an event *stream* instead — one JSON object per line (`{"schemaVersion":1,"event":"switch","ts":…, …}` with kinds like `poll`, `switch`, `no-switch`, `account-quarantined`, `all-exhausted`, `error`). The contract is additive: new kinds and fields may appear, so scripts should ignore unknown ones.
 
-Every optional field (usage age, last-known usage, fetch errors, pace, login expiry, …) is listed in [docs/json-output.md](https://github.com/realiti4/claude-swap/blob/main/docs/json-output.md).
+Every optional field (usage age, last-known usage, fetch errors, pace, login expiry, …) is listed in [docs/json-output.md](docs/json-output.md).
 
 ### Add an account from a raw token or API key
 
@@ -414,9 +509,12 @@ cswap add-token --email user@example.com     # optional label override
 
 ## Documentation
 
-- [docs/auto-switch.md](https://github.com/realiti4/claude-swap/blob/main/docs/auto-switch.md) — the exact auto-switch rules: hysteresis margins, landing rules, per-account thresholds and tiers, polling cadence. Read it to find out why it did or didn't switch.
-- [docs/json-output.md](https://github.com/realiti4/claude-swap/blob/main/docs/json-output.md) — every field in `--json` output, including the optional ones. Read it before writing a script against `cswap list --json` or `cswap auto --json`.
-- [docs/menubar.md](https://github.com/realiti4/claude-swap/blob/main/docs/menubar.md) — how the macOS menu bar runs under launchd: start at login, the wrapper app in `/Applications`, file locations, upgrades, the Login Items switch. Read it when the icon is missing or the service misbehaves.
+- [docs/auto-switch.md](docs/auto-switch.md) — the exact auto-switch rules: hysteresis margins, landing rules, per-account thresholds and tiers, polling cadence. Read it to find out why it did or didn't switch.
+- [docs/safety.md](docs/safety.md) — what cswap stores, every network call it makes and when, what a ban risk can and cannot mean, and what a failure looks like. Read it before trusting it with accounts you care about.
+- [docs/codex.md](docs/codex.md) — how Codex switching works and where its usage numbers come from.
+- [docs/gui.md](docs/gui.md) — every check the web dashboard applies before it acts.
+- [docs/json-output.md](docs/json-output.md) — every field in `--json` output, including the optional ones. Read it before writing a script against `cswap list --json` or `cswap auto --json`.
+- [docs/menubar.md](docs/menubar.md) — how the macOS menu bar runs under launchd: start at login, the wrapper app in `/Applications`, file locations, upgrades, the Login Items switch. Read it when the icon is missing or the service misbehaves.
 
 `cswap --help` and `cswap <command> --help` document every flag.
 
@@ -438,9 +536,12 @@ pipx uninstall claude-swap
 
 ## Requirements
 
-- Python 3.12+
+- Python 3.12+ (uv fetches it for you if you use the one-line install)
 - Claude Code installed and logged in
+- Optional: the Codex CLI, for `cswap codex`
 
-## License
+## Credits and license
 
-MIT
+A fork of [realiti4/claude-swap](https://github.com/realiti4/claude-swap) by Onur Cetinkol, which provides the switching engine, the terminal dashboard and the menu bar app. This fork adds the guided setup and installer, Codex support, the web dashboard, `cswap onboard`, the opt-in keepalive, and a round of reliability fixes (see [CHANGELOG.md](CHANGELOG.md)).
+
+Security reports: [SECURITY.md](SECURITY.md). MIT license, see [LICENSE](LICENSE).
