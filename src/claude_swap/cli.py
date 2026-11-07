@@ -40,7 +40,7 @@ def _prog_name() -> str:
     argparse otherwise defaults to ``os.path.basename(sys.argv[0])``, which for
     an installed entry-point shim renders as an ugly absolute path (e.g.
     ``python.exe C:\\Users\\me\\.local\\bin\\cswap``). We strip that down to the
-    bare command the user typed (``cswap`` / ``claude-swap``), falling back to
+    bare command the user typed (``aswap`` / ``cswap`` / ``agent-swap`` / ``claude-swap``), falling back to
     ``cswap`` for ``python -m claude_swap`` and odd launchers.
     """
     name = os.path.basename(sys.argv[0] or "")
@@ -1691,7 +1691,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         prog=_prog_name(),
         usage="%(prog)s <command> [args] [options]",
-        description="""Multi-Account Switcher for Claude Code
+        description="""Multi-Account Switcher for Claude Code and Codex
 
 Commands:
   %(prog)s help                       show this help

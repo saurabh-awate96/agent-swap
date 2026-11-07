@@ -189,7 +189,7 @@ def run(switcher, *, read_key=None) -> int:
         if interactive and printer.colors_enabled():
             sys.stdout.write(_CLEAR)
         print()
-        print(f"  {printer.bold_accent('cswap')} {muted('· setup')}")
+        print(f"  {printer.bold_accent('agent-swap')} {muted('· setup')}")
         print(dimmed("  Every Claude and Codex account you own, one keystroke apart."))
         print()
         _board(switcher, claude_v, codex_v)

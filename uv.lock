@@ -1,9 +1,9 @@
 version = 1
-revision = 5
+revision = 3
 requires-python = ">=3.12"
 
 [[package]]
-name = "claude-swap"
+name = "agent-swap"
 version = "1.0.0"
 source = { editable = "." }
 dependencies = [

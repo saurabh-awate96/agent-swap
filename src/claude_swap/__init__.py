@@ -1,8 +1,11 @@
-"""Multi-account switcher for Claude Code."""
+"""Multi-account switcher for Claude Code and Codex."""
 
-from importlib.metadata import version
+from importlib.metadata import PackageNotFoundError, version
 
-__version__ = version("claude-swap")
+try:
+    __version__ = version("agent-swap")
+except PackageNotFoundError:  # an environment installed before the rename
+    __version__ = version("claude-swap")
 
 from claude_swap.switcher import ClaudeAccountSwitcher
 
