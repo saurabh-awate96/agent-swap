@@ -419,6 +419,25 @@ class TestBootstrap:
             == ROTATED_CREDS
         )
 
+    def test_pre_refresh_false_never_consumes_the_backup_grant(
+        self, manager, seeded_switcher, auth_status_tracks_seed, refresh_rotates
+    ):
+        session_dir, _, _ = manager.setup_session("2", share=False, pre_refresh=False)
+
+        assert refresh_rotates == []
+        # Seeded from the stored backup, untouched by any cswap refresh.
+        assert (session_dir / ".credentials.json").read_text() == CREDS
+        assert (
+            seeded_switcher.read_account_credentials(ACCOUNT_NUM, ACCOUNT_EMAIL)
+            == CREDS
+        )
+
+    def test_default_still_consumes_the_backup_grant(
+        self, manager, auth_status_tracks_seed, refresh_rotates
+    ):
+        manager.setup_session("2", share=False)
+        assert refresh_rotates == [CREDS]
+
     @pytest.mark.skipif(sys.platform == "win32", reason="POSIX permissions")
     def test_profile_permissions(self, manager, auth_status_tracks_seed, refresh_rotates):
         session_dir, _, _ = manager.setup_session("2", share=False)

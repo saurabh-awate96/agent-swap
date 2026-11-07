@@ -964,12 +964,18 @@ class SessionManager:
     # -- bootstrap -------------------------------------------------------
 
     def setup_session(
-        self, identifier: str, share: bool, share_history: bool | None = None
+        self,
+        identifier: str,
+        share: bool,
+        share_history: bool | None = None,
+        pre_refresh: bool = True,
     ) -> tuple[Path, str, str]:
         """Ensure a valid session profile exists; returns (dir, num, email).
 
         ``share_history`` is read like ``run``'s: ``None`` means
-        ``run.shareHistory`` decides.
+        ``run.shareHistory`` decides. ``pre_refresh=False`` seeds the profile
+        from the stored backup as it is, without cswap POSTing a refresh first
+        (the auto-switch keepalive leaves every refresh to the real client).
         """
         share_history = self._resolve_share_history(share_history)
         account_num, email, org_uuid = self.switcher.resolve_account(identifier)
@@ -998,7 +1004,11 @@ class SessionManager:
         # valid, and claude refreshes on its own at runtime. Setup-token
         # accounts (--add-token) have no refresh token by design — skip
         # silently instead of warning about a flow that can't happen.
-        pre_creds = self.switcher.read_account_credentials(account_num, email)
+        pre_creds = (
+            self.switcher.read_account_credentials(account_num, email)
+            if pre_refresh
+            else None
+        )
         if pre_creds and self._has_refresh_token(pre_creds):
             outcome = self.switcher.consume_backup_grant(
                 account_num, email, pre_creds

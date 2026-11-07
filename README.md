@@ -125,6 +125,7 @@ The weekly ones exist because weekly quota left unused at its reset is lost.
 
 **Good to know**
 
+- **Opt-in keepalive.** `cswap config set autoswitch.keepalive true` makes auto-switch send one tiny real `claude` request per idle account (at most one per 8 hours each) so its login and usage stay warm. It uses a little quota, starts that account's 5-hour window, leaves no chat history, and whether scheduled pings are acceptable use is your call. Off by default; details in [docs/auto-switch.md](https://github.com/realiti4/claude-swap/blob/main/docs/auto-switch.md).
 - **Thresholds are switch-away lines, not hard caps.** With nothing under its line, or the active account at its limit, auto-switch still lands somewhere rather than stall. `priority-consume-first` is the exception: it never lands on an account at or over its line, so it holds and keeps polling.
 - A cooldown (default 5 min) and a hysteresis margin stop it flip-flopping between accounts near the threshold.
 - `--weekly-threshold 97` gives the 7-day and per-model windows their own line, so the weekly budget can run higher than the 5-hour window. `--threshold`, and any per-account threshold, then governs the 5-hour window only.
