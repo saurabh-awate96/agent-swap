@@ -7467,3 +7467,88 @@ class TestHeaderProbeReadings:
         })
         assert outcome is TickOutcome.SWITCHED
         assert h.active_number() == 3
+
+
+class TestOnDemandRefreshOfExpiredIdleCandidates:
+    """Background collection never refreshes idle slots, so when the active
+    account must be left and every candidate reads "token expired", the engine
+    refreshes them itself (through the consume gate), once each, until one
+    ranks."""
+
+    def _run(self, temp_home, grants):
+        """Active 1 at its limit; idle 2 and 3 hold expired tokens.
+
+        ``grants[num]`` is the usage that slot reads once refreshed, or
+        ``"invalid_grant"`` for a dead lineage.
+        """
+        h = EngineHarness(temp_home)
+        h.seed(1, "a@example.com")
+        h.seed(2, "b@example.com", expires_at=1)
+        h.seed(3, "c@example.com", expires_at=1)
+        h.make_live("a@example.com", 1)
+        h.refreshed, h.gate_calls = set(), []
+
+        def gate(num, email, snapshot):
+            h.gate_calls.append(num)
+            if grants[num] == "invalid_grant":
+                return oauth.RefreshOutcome(None, "invalid_grant")
+            fresh = json.dumps({"claudeAiOauth": {
+                "accessToken": f"sk-new-{num}", "refreshToken": f"rt-new-{num}",
+                "expiresAt": 9999999999000,
+            }})
+            h.switcher._write_account_credentials(num, email, fresh)
+            h.refreshed.add(num)
+            return oauth.RefreshOutcome(fresh, None)
+
+        def collect(fetch=None, **_kw):
+            out = {"1": _entry_for(_usage(100), h.clock.now)}
+            for num in ("2", "3"):
+                out[num] = _entry_for(
+                    grants[num] if num in h.refreshed else USAGE_TOKEN_EXPIRED,
+                    h.clock.now,
+                )
+            return out
+
+        with patch.object(h.switcher, "consume_backup_grant", side_effect=gate), \
+             patch.object(h.switcher, "usage_entries_by_account", side_effect=collect):
+            h.outcome = h.engine.tick()
+        return h
+
+    def test_at_limit_refreshes_expired_candidates_and_switches_to_the_best(
+        self, temp_home
+    ):
+        h = self._run(temp_home, {"2": _usage(100), "3": _usage(20)})
+        assert h.outcome is TickOutcome.SWITCHED
+        assert h.active_number() == 3
+        assert h.gate_calls == ["2", "3"]  # each once; the switch did not re-refresh
+
+    def test_stops_refreshing_once_a_candidate_ranks(self, temp_home):
+        h = self._run(temp_home, {"2": _usage(20), "3": _usage(10)})
+        assert h.active_number() == 2
+        assert h.gate_calls == ["2"]
+
+    def test_invalid_grant_quarantines_and_tries_the_next_candidate(
+        self, temp_home
+    ):
+        h = self._run(temp_home, {"2": "invalid_grant", "3": _usage(20)})
+        assert h.active_number() == 3
+        assert h.gate_calls == ["2", "3"]
+        assert "2" in h.state()["quarantine"]
+        assert "3" not in h.state().get("quarantine", {})
+
+    def test_all_dead_reports_no_viable_target_without_looping(self, temp_home):
+        h = self._run(temp_home, {"2": "invalid_grant", "3": "invalid_grant"})
+        assert h.outcome is TickOutcome.BLOCKED
+        assert h.active_number() == 1
+        assert h.gate_calls == ["2", "3"]
+        assert set(h.state()["quarantine"]) == {"2", "3"}
+
+    def test_dry_run_refreshes_nothing(self, temp_home):
+        h = EngineHarness(temp_home)
+        h.seed(1, "a@example.com")
+        h.seed(2, "b@example.com", expires_at=1)
+        h.make_live("a@example.com", 1)
+        h.engine.dry_run = True
+        with patch.object(h.switcher, "consume_backup_grant") as gate:
+            h.tick_with_usage({"1": _usage(100), "2": USAGE_TOKEN_EXPIRED})
+        gate.assert_not_called()

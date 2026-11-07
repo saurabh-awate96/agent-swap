@@ -51,6 +51,8 @@ Usage polling is adaptive — a couple of accounts per check, busy alternates wa
 
 It fails safe: if a usage check errors it keeps trusting the last-known numbers, for a bounded time, while retries back off. An expired active token is refreshed by cswap itself, under the same credential locks Claude Code uses. Only when that refresh cannot complete (lock contention, a failed save, or a backoff on that account) does an idle machine hold rather than fail over, and it retries on later passes.
 
+Background polling never refreshes the token of an account you are not using: an idle account whose access token has lapsed shows as token expired. Only when auto-switch has decided to leave the active account and no candidate has readable usage does it refresh the lapsed candidates (one at a time, only until one qualifies) and read their usage then; `cswap list` and `cswap switch` also refresh on request.
+
 An account whose refresh token has died is quarantined and reported until you either log in with it and re-run `cswap add --slot N`, or replace its stored credentials from a known-good export — a plain `cswap import backup.cswap` replaces dead-token slots on its own (`--force` is still required to replace other existing accounts; note a stale export can carry an already-superseded token). API-key accounts are never rotated onto unless you pass `--include-api-key-accounts`.
 
 ## Running alongside Claude Code

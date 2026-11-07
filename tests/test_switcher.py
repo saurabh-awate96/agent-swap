@@ -1251,6 +1251,71 @@ class TestFetchAccountUsageSessionProfile:
         assert kwargs.get("is_active") is True
 
 
+class TestBackgroundCollectionNeverRefreshesIdleSlots:
+    """Unattended collection (auto engine, dashboards) must not POST a
+    refresh for an idle slot; explicit callers (`cswap list`) still may."""
+
+    def _idle(self, switcher, token_expiry_s: float):
+        creds = _oauth_creds("sk-idle", token_expiry_s)
+        switcher._setup_directories()
+        switcher._write_account_credentials("2", "test@example.com", creds)
+        return (2, "test@example.com", "Org", "org-uuid", False, creds, "")
+
+    def test_expired_idle_slot_is_token_expired_without_any_network(
+        self, temp_home: Path
+    ):
+        switcher = ClaudeAccountSwitcher()
+        info = self._idle(switcher, -3600)
+        with patch("urllib.request.urlopen") as urlopen, \
+             patch.object(switcher, "_live_session_pids", return_value=[]), \
+             patch.object(switcher, "consume_backup_grant") as gate, \
+             patch("claude_swap.oauth.try_refresh_oauth_credentials") as post:
+            entry = switcher._collect_usage_entries(
+                [info], fetch={"2"}, refresh_idle=False
+            )["2"]
+        assert entry.sentinel == USAGE_TOKEN_EXPIRED
+        assert entry.last_error is None
+        urlopen.assert_not_called()
+        gate.assert_not_called()
+        post.assert_not_called()
+
+    def test_401_on_an_idle_slot_does_not_refresh_and_is_stamped(
+        self, temp_home: Path
+    ):
+        switcher = ClaudeAccountSwitcher()
+        info = self._idle(switcher, 7200)
+        with patch.object(switcher, "_live_session_pids", return_value=[]), \
+             patch.object(switcher, "consume_backup_grant") as gate, \
+             patch("claude_swap.oauth.try_refresh_oauth_credentials") as post, \
+             patch("claude_swap.oauth.request_usage_data",
+                   side_effect=urllib.error.HTTPError("u", 401, "x", {}, None)):
+            record = switcher._fetch_account_usage(info, refresh_idle=False)
+        assert record.sentinel == USAGE_TOKEN_EXPIRED
+        assert record.rejected_fp == oauth.access_token_fingerprint(info[5])
+        gate.assert_not_called()
+        post.assert_not_called()
+
+    def test_explicit_collection_still_refreshes(self, temp_home: Path):
+        switcher = ClaudeAccountSwitcher()
+        info = self._idle(switcher, -3600)
+        with patch.object(switcher, "_live_session_pids", return_value=[]), \
+             patch("claude_swap.oauth.try_fetch_usage_for_account",
+                   return_value=oauth.UsageOutcome({"five_hour": {"pct": 5}})) as fetch:
+            switcher._collect_usage_entries([info], fetch={"2"})
+        assert fetch.call_args.kwargs["refresh_via"] == switcher.consume_backup_grant
+
+    def test_auto_engine_and_dashboard_entry_points_do_not_refresh(
+        self, temp_home: Path
+    ):
+        switcher = ClaudeAccountSwitcher()
+        with patch.object(switcher, "_build_accounts_info", return_value=[]), \
+             patch.object(switcher, "_collect_usage_entries", return_value={}) as c, \
+             patch.object(switcher, "_plans_for_pass", return_value={}):
+            switcher.usage_entries_by_account(fetch=set())
+            switcher.accounts_snapshot(fetch=set())
+        assert [call.kwargs["refresh_idle"] for call in c.call_args_list] == [False, False]
+
+
 class TestSetupTokenHeaderProbeWiring:
     """``usage.headerProbe`` reaches every fetch, and a probed setup-token
     account is paced by the store like any other fetch."""

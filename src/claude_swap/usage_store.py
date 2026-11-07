@@ -116,6 +116,10 @@ BACKOFF_CAP_S = 600.0
 # The curve already saturates at BACKOFF_CAP_S by shift 5, so any cap above
 # that is behaviour-preserving.
 BACKOFF_MAX_SHIFT = 32
+# A 401 that repeats is not transient: the credential is refused even after any
+# refresh, and re-probing every 30-600s rotates the refresh token (and spends
+# the budget) ~6 times an hour for nothing. The first 401 keeps the normal curve.
+REPEATED_401_BACKOFF_S = 3600.0
 
 # The usage endpoint enforces a request budget on non-first-party
 # User-Agents (proven 2026-07-11: an idle token, polling alone trips it;
@@ -1168,17 +1172,23 @@ class UsageStore:
                 row["authDeadStrikes"] = 0  # a success proves the token is alive
             else:
                 failures = int(row.get("consecutiveFailures") or 0) + 1
+                repeated_401 = (
+                    rec.error == "http-401" and row.get("lastError") == "http-401"
+                )
                 row["consecutiveFailures"] = failures
                 row["lastError"] = rec.error
                 if rec.error == "http-429":
                     # Kept across later successes: the poll planner floors the
                     # cadence while a 429 is recent (see UsageEntry.last_429_at).
                     row["last429At"] = now
-                row["backoffUntil"] = now + _failure_backoff_s(
+                backoff_s = _failure_backoff_s(
                     failures,
                     rec.retry_after_s,
                     rate_limited=rec.error == "http-429",
                 )
+                if repeated_401:
+                    backoff_s = max(backoff_s, REPEATED_401_BACKOFF_S)
+                row["backoffUntil"] = now + backoff_s
                 # Only a permanent-auth failure advances the dead-token count; a
                 # transient error (429/timeout) leaves it as-is — it is no
                 # evidence either way and must not reset a real dead-token tally.

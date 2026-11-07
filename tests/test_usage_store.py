@@ -348,6 +348,23 @@ class TestBackoff:
         assert entry.consecutive_failures == 1025
         assert entry.backoff_until == pytest.approx(clock.now + BACKOFF_CAP_S)
 
+    def test_second_consecutive_401_floors_the_backoff_at_an_hour(self, store, clock):
+        # A 401 that survives a refresh must not be re-probed (and re-refreshed)
+        # every 30s..600s: the first costs the normal curve, the second an hour.
+        store.record({"1": FetchRecord(error="http-401")}, IDENT)
+        first = store.entries(IDENT)["1"]
+        assert first.backoff_until == pytest.approx(clock.now + BACKOFF_BASE_S)
+        clock.advance(BACKOFF_BASE_S)
+        store.record({"1": FetchRecord(error="http-401")}, IDENT)
+        second = store.entries(IDENT)["1"]
+        assert second.backoff_until == pytest.approx(clock.now + 3600.0)
+
+    def test_a_401_after_another_error_is_not_a_repeat(self, store, clock):
+        store.record({"1": FetchRecord(error="timeout")}, IDENT)
+        store.record({"1": FetchRecord(error="http-401")}, IDENT)
+        entry = store.entries(IDENT)["1"]
+        assert entry.backoff_until < clock.now + 3600.0
+
     def test_retry_after_is_the_floor(self, store, clock):
         store.record(
             {"1": FetchRecord(error="http-429", retry_after_s=90.0)}, IDENT

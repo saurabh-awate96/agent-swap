@@ -1446,6 +1446,45 @@ class AutoSwitchEngine:
                 thresholds=thresholds,
             )
 
+        if (
+            not ordered
+            and not self.dry_run
+            and trigger not in ("consume-first", "priority")
+        ):
+            # We must leave, but background collection never refreshes an idle
+            # slot, so candidates whose token lapsed read as unknown and none
+            # can rank. Refresh them here, once each and only until one ranks,
+            # through the same gate a switch uses, then rank again. Dry-run
+            # stops at the decision: freshening is a mutation.
+            for num in [n for n in oauth_candidates if usage.get(n) == USAGE_TOKEN_EXPIRED]:
+                email = self.switcher.account_email(num)
+                status = self._freshen_target(num, email)
+                if status in ("invalid_grant", "identity-conflict"):
+                    self._quarantine(num, email, status)
+                    oauth_candidates.remove(num)
+                    continue
+                if status != "ok":
+                    continue  # transient/systemic/live session: next tick retries
+                entries = self.switcher.usage_entries_by_account(fetch={num})
+                usage = {n: entry.decision_value() for n, entry in entries.items()}
+                headroom = _headroom_by_account(usage, self._models)
+                active_headroom = headroom.get(current)
+                decided_now = self.clock()
+                ordered, any_known, active_reset_ts = _rank(
+                    trigger=trigger,
+                    consume_first=consume_first,
+                    oauth_candidates=oauth_candidates,
+                    usage=usage,
+                    headroom=headroom,
+                    current=current,
+                    active_headroom=active_headroom,
+                    settings=settings,
+                    now=decided_now,
+                    thresholds=thresholds,
+                )
+                if ordered:
+                    break
+
         priority_active_ready = priority_mode and current in switchable and self._priority_ready(
             usage.get(current), headroom.get(current), settings, thresholds[current]
         )

@@ -1837,8 +1837,11 @@ class ClaudeAccountSwitcher:
         future plans while still allowing due plans to beat the serve TTL.
         """
         accounts_info = self._build_accounts_info()
+        # The engine's per-tick collection is unattended: it never refreshes
+        # an idle slot (see `_fetch_account_usage`); a switch decision that
+        # needs one refreshes it on demand instead.
         return self._collect_usage_entries(
-            accounts_info, fetch=fetch, scheduled=scheduled
+            accounts_info, fetch=fetch, scheduled=scheduled, refresh_idle=False
         )
 
     def _subscription_store(self) -> subscription.PlanStore:
@@ -1940,7 +1943,10 @@ class ClaudeAccountSwitcher:
         this pass.
         """
         accounts_info = self._build_accounts_info()
-        entries = self._collect_usage_entries(accounts_info, fetch=fetch)
+        # Dashboards repaint on a timer: unattended, so no idle-slot refresh.
+        entries = self._collect_usage_entries(
+            accounts_info, fetch=fetch, refresh_idle=False
+        )
         plans = self._plans_for_pass(accounts_info, fetch)
         seq_data = self._get_sequence_data() or {}
         active_number: str | None = None
@@ -5373,9 +5379,13 @@ class ClaudeAccountSwitcher:
         self,
         account_info: tuple[int, str, str, str, bool, str, str],
         rejected_fp: str | None = None,
+        refresh_idle: bool = True,
     ) -> FetchRecord:
         """One network fetch for one account. Never raises. ``rejected_fp``
-        is the row's refused-credential stamp, if any."""
+        is the row's refused-credential stamp, if any. ``refresh_idle=False``
+        (unattended collection) never POSTs a refresh for an idle slot: an
+        expired or refused token reads as "token expired" until a user action
+        or an auto-switch decision refreshes it."""
         num, email, _, org_uuid, is_active, creds, _alias = account_info
 
         # The active/default account owns the live credential — route it
@@ -5459,11 +5469,12 @@ class ClaudeAccountSwitcher:
                     return FetchRecord(sentinel=USAGE_TOKEN_EXPIRED)
                 return self._read_only_fetch(str(num), email, session_creds, rejected_fp)
 
-        if has_live_session:
+        if has_live_session or not refresh_idle:
             # No profile credential to read (wiped under the session, or
             # unreadable): the backup copy serves read-only, and once the
             # live claude has rotated past it the server refuses it for
             # good. An expired copy is known refused without asking.
+            # (Also the unattended path: same read-only fetch, no refresh.)
             backup_oauth = oauth.extract_oauth_data(creds) or {}
             if oauth.is_oauth_token_expired(backup_oauth.get("expiresAt")):
                 return FetchRecord(sentinel=USAGE_TOKEN_EXPIRED)
@@ -5511,6 +5522,7 @@ class ClaudeAccountSwitcher:
         self,
         infos: list[tuple[int, str, str, str, bool, str, str]],
         entries: dict[str, UsageEntry] | None = None,
+        refresh_idle: bool = True,
     ) -> dict[str, FetchRecord]:
         """Fetch the given accounts in parallel, staggering request starts so
         N accounts never hit the endpoint in the same instant. ``entries``
@@ -5524,7 +5536,9 @@ class ClaudeAccountSwitcher:
             num = str(info[0])
             entry = entries.get(num) if entries else None
             return num, self._fetch_account_usage(
-                info, entry.rejected_fingerprint if entry else None
+                info,
+                entry.rejected_fingerprint if entry else None,
+                refresh_idle,
             )
 
         with ThreadPoolExecutor() as executor:
@@ -5538,6 +5552,7 @@ class ClaudeAccountSwitcher:
         fetch: set[str] | None = None,
         *,
         scheduled: bool = False,
+        refresh_idle: bool = True,
     ) -> dict[str, UsageEntry]:
         """Store-backed usage collection: one :class:`UsageEntry` per account.
 
@@ -5643,7 +5658,7 @@ class ClaudeAccountSwitcher:
         if claims:
             pre = entries
             records = self._run_usage_fetches(
-                [info_by_num[num] for num in claims], pre
+                [info_by_num[num] for num in claims], pre, refresh_idle
             )
             plans = self._plans_after_fetch(records, pre, info_by_num)
             accepted = store.record(records, identities, claims, plans)
