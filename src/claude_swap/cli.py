@@ -1282,6 +1282,72 @@ def _onboard_command(argv: list[str]) -> None:
         sys.exit(130)
 
 
+def _gui_command(argv: list[str]) -> None:
+    """Handle `cswap gui [--write] [--no-open] [--port N]`.
+
+    Pre-dispatched like `auto`: a positional subcommand can't live in the main
+    parser's required flag group. Serves a loopback-only web dashboard; see
+    claude_swap.gui.server for what protects it.
+    """
+    parser = argparse.ArgumentParser(
+        prog=f"{_prog_name()} gui",
+        description=(
+            "Open a local web dashboard of your accounts. Read-only unless "
+            "--write is given."
+        ),
+    )
+    parser.add_argument(
+        "--write", action="store_true",
+        help="Allow switching, enabling/disabling and adding the current login",
+    )
+    parser.add_argument(
+        "--no-open", action="store_true",
+        help="Print the link instead of opening a browser (use on shared machines)",
+    )
+    parser.add_argument(
+        "--port", type=int, default=0,
+        help="Fixed port (default: any free one); useful for an SSH tunnel",
+    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    args = parser.parse_args(argv)
+
+    from claude_swap.gui.server import GuiServer
+
+    try:
+        switcher = ClaudeAccountSwitcher(debug=args.debug)
+        _guard_root(switcher)
+        server = GuiServer(switcher, write=args.write, port=args.port)
+    except ClaudeSwitchError as e:
+        error(f"Error: {e}")
+        sys.exit(1)
+    except OSError as e:
+        error(f"Error: could not start the dashboard: {e}")
+        sys.exit(1)
+
+    base = f"http://127.0.0.1:{server.server_port}"
+    # The token rides in the URL fragment, which browsers never send to a
+    # server or in a Referer. It is printed only when the browser is not
+    # opened for the user, so it stays out of terminal scrollback otherwise.
+    link = f"{base}/#{server.token}"
+    opened = False
+    if not args.no_open:
+        import webbrowser
+
+        opened = webbrowser.open(link)
+    mode = "can change accounts" if args.write else "read-only"
+    # flush: serve_forever() blocks, and a redirected stdout (ssh, a log file)
+    # would otherwise hold the link in its buffer until exit.
+    print(f"{accent('Dashboard')} on {base} ({mode}). Ctrl-C to stop.", flush=True)
+    if not opened:
+        print(f"Open: {link}", flush=True)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
 def main() -> None:
     """Main entry point for the CLI."""
     force_utf8_output()
@@ -1329,6 +1395,9 @@ def main() -> None:
     if argv and argv[0] == "onboard":
         _onboard_command(argv[1:])
         return
+    if argv and argv[0] == "gui":
+        _gui_command(argv[1:])
+        return
     if argv and argv[0] == "swap":
         _swap_command(argv[1:])
         return
@@ -1360,6 +1429,7 @@ Commands:
   %(prog)s switch <num|email>         switch to a specific account
   %(prog)s add                        add the current account
   %(prog)s onboard                    add all your accounts, one guided login each
+  %(prog)s gui [--write]              local web dashboard (read-only unless --write)
   %(prog)s add-token [TOKEN|-]        register a setup-token or API key
   %(prog)s remove <num|email>         remove an account
   %(prog)s disable <num|email>        hold an account out of auto-rotation

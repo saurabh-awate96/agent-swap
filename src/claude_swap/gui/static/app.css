@@ -1,0 +1,45 @@
+:root {
+  --bg: #f6f6f4; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66;
+  --line: #e2e2dc; --bar: #e8e8e2; --ok: #2f7d4f; --warn: #b7791f;
+  --bad: #b3372f; --accent: #2b5fd9; --tick: #1d1d1b;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #161615; --card: #20201e; --text: #ececE6; --muted: #9a9a92;
+    --line: #34342f; --bar: #2f2f2b; --ok: #5cc183; --warn: #e0a84a;
+    --bad: #f0786f; --accent: #7aa2ff; --tick: #ececE6;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; padding: 16px; background: var(--bg); color: var(--text);
+  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 4px; }
+h1 { font-size: 20px; margin: 0; }
+.muted { color: var(--muted); font-size: 13px; }
+.chip {
+  font-size: 12px; padding: 2px 8px; border: 1px solid var(--line);
+  border-radius: 999px; color: var(--muted);
+}
+.chip.write { color: var(--warn); border-color: var(--warn); }
+.chip.active { color: var(--ok); border-color: var(--ok); }
+.chip.bad { color: var(--bad); border-color: var(--bad); }
+main { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+.card h2 { font-size: 16px; margin: 0 0 6px; overflow-wrap: anywhere; }
+.row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.win { margin: 8px 0; }
+.win .label { display: flex; justify-content: space-between; font-size: 13px; }
+.bar { position: relative; height: 8px; background: var(--bar); border-radius: 4px; margin-top: 3px; }
+.bar .fill { height: 100%; border-radius: 4px; background: var(--ok); }
+.bar .fill.warn { background: var(--warn); }
+.bar .fill.bad { background: var(--bad); }
+.bar .tick { position: absolute; top: -2px; width: 2px; height: 12px; background: var(--tick); }
+.actions { display: flex; gap: 8px; margin-top: 10px; }
+button {
+  font: inherit; padding: 5px 12px; border-radius: 6px; cursor: pointer;
+  border: 1px solid var(--line); background: var(--card); color: var(--text);
+}
+button:hover { border-color: var(--accent); }
+button:disabled { opacity: 0.5; cursor: default; }

@@ -57,6 +57,12 @@ cswap add
 
 Do not run `/logout` first: current Claude Code may revoke the refresh token stored for the account you are leaving.
 
+Have several accounts to bring in? `cswap onboard` does the loop for you: it asks for each email, runs Claude Code's own `claude auth login --email …` (you sign in in the browser), and saves that login. It never logs anything out.
+
+```bash
+cswap onboard
+```
+
 ### Switch accounts
 
 Rotate to the next account:
@@ -189,6 +195,18 @@ Subfolders inherit the nearest mapped ancestor. In an unmapped directory, `cswap
 Run `cswap` on its own (or `cswap tui`) for the full-screen dashboard: live usage for every account, switching, and the auto-switcher, all keyboard-driven. `cswap watch` opens it straight to the live monitor. Works on macOS, Linux, and Windows.
 
 <img src="assets/tui-watch.png" width="760" alt="cswap watch — live 5h/7d usage bars for every account, with reset times and the active account marked">
+
+### Web dashboard (GUI)
+
+Prefer a window to a terminal? `cswap gui` opens a dashboard in your browser: a card per account with 5-hour and 7-day bars, reset countdowns, and your switch line marked on each bar.
+
+```bash
+cswap gui                # read-only: look, don't touch
+cswap gui --write        # also switch, enable/disable, and add the current login
+cswap gui --no-open      # print the link instead of opening a browser
+```
+
+It listens on `127.0.0.1` only, on a random port, and the link carries a one-time token that changes on every run. Only requests from the page itself are accepted, and nothing is changed unless you started it with `--write`. On a shared machine use `--no-open` and paste the link yourself.
 
 ### Refresh expired tokens
 
