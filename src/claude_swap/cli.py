@@ -1218,6 +1218,70 @@ def _menubar_service(args) -> int:
     return 0
 
 
+def _onboard_command(argv: list[str]) -> None:
+    """Handle `cswap onboard`: bring several of YOUR accounts in, one guided login each.
+
+    Pre-dispatched like `swap` (positional subcommand beside the main parser's
+    required flag group). It is the documented manual flow -- log in with an
+    account, then `cswap add` -- run in a loop, using Claude Code's own
+    `claude auth login`. It never logs out (that can revoke the token of the
+    account being left) and never reads another app's credentials.
+    """
+    parser = argparse.ArgumentParser(
+        prog=f"{_prog_name()} onboard",
+        description=(
+            "Add all your Claude accounts in one sitting. For each one it runs "
+            "`claude auth login` (you sign in in the browser), then saves that "
+            "login into cswap."
+        ),
+    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    args = parser.parse_args(argv)
+
+    import shutil
+    import subprocess
+
+    try:
+        switcher = ClaudeAccountSwitcher(debug=args.debug)
+        _guard_root(switcher)
+        claude = shutil.which("claude")
+        if claude is None:
+            raise ClaudeSwitchError(
+                "Claude Code (`claude`) was not found on PATH. Install it first."
+            )
+
+        if switcher._get_current_identity_triple() is not None:
+            answer = input("You are already logged in. Save that account first? [Y/n] ")
+            if answer.strip().lower() in ("", "y", "yes"):
+                switcher.add_account()
+
+        print(dimmed("Do not run /logout between accounts: it can revoke the one you leave."))
+        while True:
+            email = input(
+                "Email of the next account to add (blank to finish): "
+            ).strip()
+            if not email:
+                break
+            # Check the address before launching a browser login for it.
+            if not switcher._validate_email(email):
+                warning(f"'{email}' does not look like an email address.")
+                continue
+            if subprocess.run([claude, "auth", "login", "--email", email]).returncode != 0:
+                warning(f"Login for {email} did not complete; nothing was saved.")
+                continue
+            try:
+                switcher.add_account()
+            except ClaudeSwitchError as e:
+                warning(f"Could not save {email}: {e}")
+        switcher.list_accounts()
+    except ClaudeSwitchError as e:
+        error(f"Error: {e}")
+        sys.exit(1)
+    except (KeyboardInterrupt, EOFError):
+        print(dimmed("\nCancelled"))
+        sys.exit(130)
+
+
 def main() -> None:
     """Main entry point for the CLI."""
     force_utf8_output()
@@ -1262,6 +1326,9 @@ def main() -> None:
     if argv and argv[0] == "priority":
         _priority_command(argv[1:])
         return
+    if argv and argv[0] == "onboard":
+        _onboard_command(argv[1:])
+        return
     if argv and argv[0] == "swap":
         _swap_command(argv[1:])
         return
@@ -1292,6 +1359,7 @@ Commands:
   %(prog)s switch                     rotate to the next account
   %(prog)s switch <num|email>         switch to a specific account
   %(prog)s add                        add the current account
+  %(prog)s onboard                    add all your accounts, one guided login each
   %(prog)s add-token [TOKEN|-]        register a setup-token or API key
   %(prog)s remove <num|email>         remove an account
   %(prog)s disable <num|email>        hold an account out of auto-rotation
