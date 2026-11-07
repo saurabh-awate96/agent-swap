@@ -6,6 +6,8 @@ on:
 
 jobs:
   publish:
+    # Forks have no PyPI project of this name; a release here must not try.
+    if: github.repository == 'realiti4/claude-swap'
     runs-on: ubuntu-latest
     permissions:
       id-token: write
