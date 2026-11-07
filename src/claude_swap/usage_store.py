@@ -952,6 +952,12 @@ class UsageStore:
             fetched_at = row.get("fetchedAt")
             if not isinstance(fetched_at, (int, float)):
                 fetched_at = None
+            elif fetched_at > now:
+                # The clock stepped back since the write (VM resume, NTP), so
+                # the age would be negative and read as fresh — trusted for
+                # switch decisions, and never refetched, for the whole length
+                # of the step. Unknown instead, which refetches.
+                fetched_at = None
             last_good = row.get("lastGood")
             age_s = (now - fetched_at) if fetched_at is not None else None
             consecutive_failures = int(row.get("consecutiveFailures") or 0)

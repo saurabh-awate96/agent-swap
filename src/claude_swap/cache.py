@@ -22,7 +22,9 @@ def read_cache(path: Path, ttl: float, default=MISSING):
     """
     try:
         raw = json.loads(path.read_text(encoding="utf-8"))
-        if time.time() - raw["timestamp"] < ttl:
+        # A negative age means the clock stepped back (VM resume, NTP) since
+        # the write, which would otherwise make the entry look fresh forever.
+        if 0 <= time.time() - raw["timestamp"] < ttl:
             return raw["data"]
     except (
         OSError,

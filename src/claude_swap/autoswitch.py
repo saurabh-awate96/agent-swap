@@ -2560,7 +2560,10 @@ class AutoSwitchEngine:
         last = state.get("lastSwitchAt")
         if not isinstance(last, (int, float)):
             return False
-        return (self.clock() - last) < self.settings.cooldown_seconds
+        # Bounded below like `_load_health_counters`: a backward clock step
+        # makes the elapsed time negative, which would hold the cooldown for
+        # the whole length of the step and freeze proactive switching.
+        return 0 <= (self.clock() - last) < self.settings.cooldown_seconds
 
     def _check_model_names(
         self, quarantined: set[str], usage: dict[str, dict | str | None]

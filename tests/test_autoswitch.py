@@ -481,6 +481,19 @@ class TestDecisionTable:
         assert switch.trigger == "at-limit"
         assert harness.active_number() == 2
 
+    def test_backward_clock_step_does_not_hold_the_cooldown(self, harness):
+        # `lastSwitchAt` is wall time. After a VM resume or an NTP correction
+        # the elapsed time is negative, which an unbounded check reads as
+        # "inside the cooldown" for the whole length of the step — so
+        # proactive switching froze until the clock caught up.
+        harness.engine._mutate_state(
+            lambda s: s.update(lastSwitchAt=harness.clock() + 3600)
+        )
+        outcome = harness.tick_with_usage({
+            "1": _usage(95), "2": _usage(10), "3": _usage(50),
+        })
+        assert outcome is TickOutcome.SWITCHED
+
     def test_cooldown_expires(self, harness):
         harness.engine._mutate_state(
             lambda s: s.update(lastSwitchAt=harness.clock())
