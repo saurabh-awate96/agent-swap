@@ -220,6 +220,26 @@ This will update the stored credentials without creating a duplicate.
 
 If the refresh token itself has died (auto-switch quarantines and reports such an account), log in with it and re-run `cswap add --slot N`, or replace its stored credentials from a known-good export: a plain `cswap import backup.cswap` replaces dead-token slots on its own (a stale export can carry an already-superseded token).
 
+### OpenAI Codex CLI accounts
+
+`cswap codex` switches the [Codex CLI](https://github.com/openai/codex) login (`~/.codex/auth.json`, or `$CODEX_HOME`). It is separate from your Claude accounts and works entirely from local files: it makes no request to OpenAI, and never runs `codex login` or `codex logout`.
+
+```bash
+cswap codex add                    # store the login Codex is using right now
+codex login                        # ...then log in as the next account
+cswap codex add --alias work       # ...and store that one too
+cswap codex list                   # accounts, with the last 5h / weekly usage Codex recorded
+cswap codex switch                 # rotate; or: switch work | switch 1
+cswap codex switch --strategy best # the account with the most quota left
+cswap codex status                 # which stored account is live
+cswap codex remove work
+```
+
+- **Always `cswap codex add` the current login before running `codex login` for another.** A login cswap does not know is refused, never overwritten.
+- **Never `codex logout` a stored account.** It revokes the login on OpenAI's side, so the stored copy stops working.
+- **Running Codex sessions keep their account until restarted.** A switch affects Codex processes started afterwards.
+- Usage comes from Codex's own session files (`sessions/**/rollout-*.jsonl`), so an idle account shows the numbers from its last session. Only `cli_auth_credentials_store = "file"` (the default) is supported.
+
 ### Other commands
 
 ```bash

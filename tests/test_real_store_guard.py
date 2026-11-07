@@ -910,3 +910,17 @@ def test_c0_a_scratch_home_still_protects_the_os_account_home_store(monkeypatch,
     assert scratch_root in roots, (
         "the scratch HOME's own root must stay protected too"
     )
+
+
+def test_frozen_specs_protect_the_real_codex_home(monkeypatch, tmp_path):
+    """`cswap codex` swaps ~/.codex/auth.json: no test may write there."""
+    home = tmp_path / "home"
+    home.mkdir()
+    exported = tmp_path / "elsewhere"
+    monkeypatch.setattr("pathlib.Path.home", lambda: home)
+    monkeypatch.setenv("CODEX_HOME", str(exported))
+
+    roots = {root for root, recursive in conftest._freeze_real_store_specs() if recursive}
+
+    assert home / ".codex" in roots
+    assert exported in roots

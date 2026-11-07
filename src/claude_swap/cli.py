@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sys
+import time
 
 from claude_swap import __version__, paths, printer
 from claude_swap.exceptions import ClaudeSwitchError
@@ -1348,6 +1349,89 @@ def _gui_command(argv: list[str]) -> None:
         server.server_close()
 
 
+def _codex_command(argv: list[str]) -> None:
+    """Handle `cswap codex add|list|switch|remove|status`.
+
+    Switches the OpenAI Codex CLI login (``$CODEX_HOME/auth.json``). Separate
+    from the Claude accounts: its own roster, and it never touches the network.
+    """
+    from claude_swap import codex
+
+    prog = f"{_prog_name()} codex"
+    parser = argparse.ArgumentParser(
+        prog=prog,
+        description=(
+            "Switch Codex CLI accounts. Run `add` for the current login BEFORE "
+            "`codex login` for the next one, and never `codex logout` a managed "
+            "account (it revokes the login server-side)."
+        ),
+    )
+    sub = parser.add_subparsers(dest="verb", required=True)
+
+    def verb(name: str, help: str) -> argparse.ArgumentParser:
+        p = sub.add_parser(name, help=help)
+        p.add_argument("--debug", action="store_true", help="Enable debug logging")
+        return p
+
+    p_add = verb("add", "store the current Codex login in a slot")
+    p_add.add_argument("--slot", type=int, help="slot number (default: next free)")
+    p_add.add_argument("--alias", help="short name for the slot")
+    p_add.add_argument("-y", "--yes", action="store_true", help="overwrite an occupied slot")
+    p_list = verb("list", "list stored Codex accounts")
+    p_list.add_argument("--json", action="store_true")
+    p_switch = verb("switch", "rotate to the next account, or jump to one")
+    p_switch.add_argument("target", nargs="?", metavar="NUM|EMAIL|ALIAS")
+    p_switch.add_argument("--strategy", choices=["best"], help="pick the account with the most quota left")
+    p_switch.add_argument("--force", action="store_true", help="switch even while Codex may be refreshing")
+    p_remove = verb("remove", "forget a stored account")
+    p_remove.add_argument("target", metavar="NUM|EMAIL|ALIAS")
+    p_remove.add_argument("-y", "--yes", action="store_true", help="also remove the active slot")
+    p_status = verb("status", "show which stored account is live")
+    p_status.add_argument("--json", action="store_true")
+    args = parser.parse_args(argv)
+    if args.verb == "switch" and args.target and args.strategy:
+        parser.error("give a target or --strategy, not both")
+
+    try:
+        cx = codex.Codex(debug=args.debug)
+        if args.verb == "add":
+            slot, created = cx.add(slot=args.slot, alias=args.alias, yes=args.yes)
+            print(f"{accent('Added' if created else 'Refreshed')} Codex slot {slot}")
+        elif args.verb == "list":
+            rows = cx.rows()
+            if args.json:
+                print(json.dumps(rows, indent=2))
+            elif not rows:
+                print("No Codex accounts. Run `cswap codex add` while logged in.")
+            for r in rows:
+                name = r["alias"] or r["email"] or "(API key)"
+                use = codex.describe_usage(r["usage"], time.time())
+                print(f"{'*' if r['active'] else ' '} {r['slot']}: {name}  {dimmed(r['plan'])}  {use}")
+        elif args.verb == "switch":
+            slot, changed = cx.switch(args.target, strategy=args.strategy, force=args.force)
+            print(f"{accent('Switched' if changed else 'Already on')} Codex slot {slot}")
+            print(dimmed("Running Codex sessions keep their account until restarted."))
+        elif args.verb == "remove":
+            print(f"{accent('Removed')} Codex slot {cx.remove(args.target, yes=args.yes)}")
+        else:
+            st = cx.status()
+            if args.json:
+                print(json.dumps(st, indent=2))
+            elif st["state"] in ("absent", "unreadable"):
+                print(f"Codex login: {st['state']}")
+            else:
+                slot = f"slot {st['slot']}" if st["slot"] else "NOT managed (run `cswap codex add`)"
+                print(f"Codex login: {st['email'] or '(API key)'} ({st['plan']}), {slot}")
+                if st["usage"]:
+                    print(f"  {codex.describe_usage(st['usage'], time.time())}")
+    except ClaudeSwitchError as e:
+        error(f"Error: {e}")
+        sys.exit(1)
+    except KeyboardInterrupt:
+        print(f"\n{dimmed('Operation cancelled')}")
+        sys.exit(130)
+
+
 def main() -> None:
     """Main entry point for the CLI."""
     force_utf8_output()
@@ -1397,6 +1481,9 @@ def main() -> None:
         return
     if argv and argv[0] == "gui":
         _gui_command(argv[1:])
+        return
+    if argv and argv[0] == "codex":
+        _codex_command(argv[1:])
         return
     if argv and argv[0] == "swap":
         _swap_command(argv[1:])
@@ -1450,6 +1537,7 @@ Commands:
   %(prog)s swap <a> <b>               exchange two accounts' slot numbers
   %(prog)s move <a> <slot>            assign an account to a slot (swaps if taken)
   %(prog)s auto                       auto-switch when nearing rate limits
+  %(prog)s codex add|list|switch|remove|status  switch OpenAI Codex CLI accounts
   %(prog)s config [set KEY VALUE]     show or change settings (settings.json)
   %(prog)s unclaimed [--purge ID]     list or drop stashed credential entries
   %(prog)s export <path>              export accounts
