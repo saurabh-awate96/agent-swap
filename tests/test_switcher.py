@@ -9568,6 +9568,42 @@ class TestDisableEnableAccount:
         assert "Skipping Account-2 (disabled)" in out
         assert s._get_sequence_data()["activeAccountNumber"] == 3
 
+    def test_rotation_skips_slot_with_dead_refresh_token(self, temp_home, capsys):
+        """active=1, slot 2 struck as refresh-token-dead — bare switch lands on 3.
+
+        `cswap auto` already drops such a slot; the manual rotation used to
+        land on it, which works for minutes (the access token is still good)
+        and then leaves claude on /login.
+        """
+        s = self._setup(temp_home)
+        self._seed(s, 1, "a@example.com")
+        self._seed(s, 2, "b@example.com")
+        self._seed(s, 3, "c@example.com")
+        self._make_live(temp_home, "a@example.com", 1)
+
+        with patch.object(
+            s, "_slot_token_dead", side_effect=lambda num, email: num == "2"
+        ), patch.object(s, "list_accounts"):
+            s.switch()
+
+        assert "Skipping Account-2 (login expired" in capsys.readouterr().out
+        assert s._get_sequence_data()["activeAccountNumber"] == 3
+
+    def test_rotation_with_only_dead_targets_stays_put(self, temp_home, capsys):
+        s = self._setup(temp_home)
+        self._seed(s, 1, "a@example.com")
+        self._seed(s, 2, "b@example.com")
+        self._make_live(temp_home, "a@example.com", 1)
+
+        with patch.object(s, "_slot_token_dead", return_value=True), \
+                patch.object(s, "list_accounts"):
+            s.switch()
+
+        assert "No other accounts have valid stored credentials" in (
+            capsys.readouterr().out
+        )
+        assert s._get_sequence_data()["activeAccountNumber"] == 1
+
     def test_best_strategy_ignores_disabled_candidate(self, temp_home):
         """The only other switchable account is disabled → no candidate."""
         s = self._setup(temp_home)

@@ -6685,6 +6685,22 @@ class ClaudeAccountSwitcher:
                         f"cswap --add-account --slot {candidate})"
                     )
                 continue
+            # A slot the collectors have struck as refresh-token-dead is not a
+            # rotation target: landing on it works for minutes (the access
+            # token is still good), then claude shows /login. `cswap auto`
+            # already drops such slots; the manual rotation must agree. An
+            # explicit `switch <num>` still goes through (it never reaches
+            # this loop), so the user can force it.
+            candidate_email = (data["accounts"].get(candidate) or {}).get("email", "")
+            if self._slot_token_dead(candidate, candidate_email):
+                if json_output:
+                    warnings.append(f"Skipped Account-{candidate} (login expired)")
+                else:
+                    print(
+                        f"{accent('Skipping')} Account-{candidate} (login expired, "
+                        f"log in with it and re-run cswap add --slot {candidate})"
+                    )
+                continue
             if strategy == "next-available":
                 headroom = oauth.account_headroom(usage.get(candidate), models)
                 if headroom is not None and headroom <= 0:

@@ -584,6 +584,32 @@ class TestBootstrap:
         assert (session_dir / ".credentials.json").read_text() == ROTATED_CREDS
         assert not (session_dir / session_mod.STALE_MARKER).exists()
 
+    def test_invalid_profile_is_not_reseeded_under_a_live_session(
+        self, manager, seeded_switcher, auth_status_tracks_seed, refresh_rotates,
+        monkeypatch,
+    ):
+        """A live session whose profile reads invalid (the user ran `/login` as
+        another account inside it) must not be re-seeded by a second `cswap run`.
+
+        `_bootstrap` deletes the profile's Keychain entry and overwrites
+        .credentials.json; every other branch guards that with a quiescence
+        check, and this one (profile INVALID) used to have none. The live
+        claude would be moved onto this account and the newer login's tokens
+        lost.
+        """
+        session_dir, _, _ = manager.setup_session("2", share=False)
+        (session_dir / ".credentials.json").write_text("login made in-session")
+        make_live(session_dir)
+        monkeypatch.setattr(manager, "_is_session_valid", lambda *a, **k: False)
+
+        with pytest.raises(session_mod.SessionError, match="live session-mode"):
+            manager.setup_session("2", share=False)
+
+        assert (
+            (session_dir / ".credentials.json").read_text()
+            == "login made in-session"
+        )
+
     @pytest.mark.parametrize("legacy_location", [False, True])
     def test_stale_marker_preserved_while_session_still_live(
         self, manager, seeded_switcher, auth_status_tracks_seed, refresh_rotates,
