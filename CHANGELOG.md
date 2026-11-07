@@ -5,6 +5,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 
 ## Unreleased
 
+### Renamed
+
+- The project is now **agent-swap** (it switches Codex as well as Claude). New command `aswap`; `agent-swap`, `cswap` and `claude-swap` still work. The distribution is `agent-swap`, the repository `saurabh-awate96/agent-swap` (GitHub redirects the old URL). The Python package (`claude_swap`), the data folders, the Keychain service and the launchd label keep their old names so no saved login or running service is orphaned.
+
 ### Added
 
 - **`cswap setup`**: a guided first-run screen. Checks Claude Code and Codex, shows how many logins are saved, and walks through saving the current login, adding more accounts, saving a Codex login, picking the auto-switch point and opening a dashboard. Arrow keys, or a number.

@@ -1,4 +1,4 @@
-"""Check PyPI for newer versions of claude-swap."""
+"""Check PyPI for newer versions of agent-swap."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ from claude_swap.cache import CACHE_DIR, MISSING, read_cache, write_cache
 CACHE_PATH = CACHE_DIR / "update_check.json"
 CACHE_TTL = 24 * 3600  # A successful lookup is kept for a day.
 FAILURE_TTL = 3600  # A failed one is retried after an hour.
-PYPI_URL = "https://pypi.org/pypi/claude-swap/json"
+PYPI_URL = "https://pypi.org/pypi/agent-swap/json"
 
 _VERSION_RE = re.compile(
     r"(\d+(?:\.\d+)*)(?:[-_.]?(alpha|beta|preview|pre|rc|a|b|c)[-_.]?(\d+)?)?",
@@ -107,7 +107,7 @@ def _installed_from_registry(method: str | None) -> bool:
             reqs = _read_receipt().get("requirements", [])
             return not any(
                 isinstance(r, dict)
-                and r.get("name") == "claude-swap"
+                and r.get("name") in ("agent-swap", "claude-swap")
                 and any(k in r for k in ("git", "directory", "editable", "url", "path"))
                 for r in reqs
             )
@@ -203,7 +203,7 @@ def _uv_latest_version(current_version: str, cooldown: _Cooldown | None) -> str 
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
     for row in rows:
-        if row.get("name") == "claude-swap":
+        if row.get("name") in ("agent-swap", "claude-swap"):
             latest = row.get("latest_version")
             return latest if isinstance(latest, str) else None
     return current_version
@@ -279,9 +279,9 @@ def held_back_release_notice(current_version: str) -> str | None:
             return None
     except (FileNotFoundError, ValueError):
         return None
-    take_now = 'uv tool upgrade claude-swap --exclude-newer "0 days"'
+    take_now = 'uv tool upgrade agent-swap --exclude-newer "0 days"'
     lines = [
-        f"claude-swap {latest} is on PyPI, but this install has a release cooldown",
+        f"agent-swap {latest} is on PyPI, but this install has a release cooldown",
         f"  ({cooldown.source}) that hides it from uv tool upgrade.",
     ]
     if cooldown.from_env:
@@ -291,7 +291,7 @@ def held_back_release_notice(current_version: str) -> str | None:
         if _CUTOFF_RE.match(cooldown.value):
             lines.append(
                 "  To restore the cooldown: "
-                f"uv tool upgrade claude-swap --exclude-newer {cooldown.value}"
+                f"uv tool upgrade agent-swap --exclude-newer {cooldown.value}"
             )
     return "\n".join(lines)
 
@@ -319,8 +319,8 @@ def check_for_update(current_version: str) -> str | None:
 
         if latest_version and _is_newer(latest_version, current_version):
             direct = {
-                "uv": "uv tool upgrade claude-swap",
-                "pipx": "pipx upgrade claude-swap",
+                "uv": "uv tool upgrade agent-swap",
+                "pipx": "pipx upgrade agent-swap",
             }.get(method or "")
             if direct and sys.platform != "win32":
                 # cswap upgrade actually performs the upgrade here.
@@ -332,7 +332,7 @@ def check_for_update(current_version: str) -> str | None:
                 # Unknown install method: cswap upgrade shows manual instructions.
                 hint = "Run `cswap upgrade` for upgrade instructions."
             return (
-                f"A newer version of claude-swap is available ({latest_version}). "
+                f"A newer version of agent-swap is available ({latest_version}). "
                 f"You are using {current_version}. {hint}"
             )
         return None
@@ -353,7 +353,8 @@ def _installed_version_on_disk() -> str | None:
     """
     code = (
         "import importlib.metadata as m\n"
-        "print(m.version('claude-swap'))"
+        "try: print(m.version('agent-swap'))\n"
+        "except m.PackageNotFoundError: print(m.version('claude-swap'))"
     )
     try:
         result = subprocess.run(
@@ -383,7 +384,11 @@ def install_identity() -> dict:
 
     source = None
     try:
-        raw = metadata.distribution("claude-swap").read_text("direct_url.json")
+        try:
+            dist = metadata.distribution("agent-swap")
+        except metadata.PackageNotFoundError:  # an environment from before the rename
+            dist = metadata.distribution("claude-swap")
+        raw = dist.read_text("direct_url.json")
         if raw:
             source = (json.loads(raw).get("vcs_info") or {}).get("commit_id") or None
     except (OSError, ImportError, ValueError, AttributeError, TypeError):
@@ -476,8 +481,8 @@ def run_self_upgrade(current_version: str | None = None) -> int:
 
     method = _detect_install_method()
     commands = {
-        "uv": ["uv", "tool", "upgrade", "claude-swap"],
-        "pipx": ["pipx", "upgrade", "claude-swap"],
+        "uv": ["uv", "tool", "upgrade", "agent-swap"],
+        "pipx": ["pipx", "upgrade", "agent-swap"],
     }
     cmd = commands.get(method or "")
     if cmd is None:
@@ -486,9 +491,9 @@ def run_self_upgrade(current_version: str | None = None) -> int:
             f"  sys.prefix:     {sys.prefix}\n"
             f"  sys.executable: {sys.executable}\n"
             "To upgrade manually, run one of:\n"
-            "  uv tool upgrade claude-swap\n"
-            "  pipx upgrade claude-swap\n"
-            f"  {sys.executable} -m pip install --upgrade claude-swap\n"
+            "  uv tool upgrade agent-swap\n"
+            "  pipx upgrade agent-swap\n"
+            f"  {sys.executable} -m pip install --upgrade agent-swap\n"
             "If you installed with `pip install -e .`, use `git pull` instead."
         )
         return 1
@@ -498,7 +503,7 @@ def run_self_upgrade(current_version: str | None = None) -> int:
     # though the package itself updates. cswap exits right after this, which
     # releases the lock, so the user can just run the command themselves.
     if sys.platform == "win32":
-        print(f"To upgrade claude-swap on Windows, run:\n  {accent(' '.join(cmd))}")
+        print(f"To upgrade agent-swap on Windows, run:\n  {accent(' '.join(cmd))}")
         if method == "uv":
             notice = held_back_release_notice(current_version)
             if notice:
@@ -525,9 +530,9 @@ def run_self_upgrade(current_version: str | None = None) -> int:
     # never masking the upgrade's own exit status.
     after = _installed_version_on_disk()
     if before and after and after != before:
-        print(accent(f"claude-swap upgraded: {before} -> {after}"))
+        print(accent(f"agent-swap upgraded: {before} -> {after}"))
     elif before and after:
-        print(f"claude-swap is still at {after}.")
+        print(f"agent-swap is still at {after}.")
 
     if sys.platform == "darwin":
         _restart_menubar_if_rebuilt(before_identity)

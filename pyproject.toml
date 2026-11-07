@@ -1,7 +1,7 @@
 [project]
-name = "claude-swap"
+name = "agent-swap"
 version = "1.0.0"
-description = "Multi-account switcher for Claude Code"
+description = "Multi-account switcher for Claude Code and Codex"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -10,7 +10,7 @@ dependencies = [
 ]
 authors = [{name = "Onur Cetinkol", email = "onurcetinkol@gmail.com"}]
 license = {text = "MIT"}
-keywords = ["claude", "claude-code", "account-switcher", "cli"]
+keywords = ["claude", "claude-code", "codex", "account-switcher", "cli"]
 classifiers = [
     "Development Status :: 5 - Production/Stable",
     "Environment :: Console",
@@ -30,13 +30,16 @@ classifiers = [
 menubar = ["rumps>=0.4.0"]
 
 [project.urls]
-Homepage = "https://github.com/realiti4/claude-swap"
-Repository = "https://github.com/realiti4/claude-swap"
-Issues = "https://github.com/realiti4/claude-swap/issues"
+Homepage = "https://github.com/saurabh-awate96/agent-swap"
+Repository = "https://github.com/saurabh-awate96/agent-swap"
+Issues = "https://github.com/saurabh-awate96/agent-swap/issues"
 
 [project.scripts]
-claude-swap = "claude_swap.cli:main"
+# aswap is the short name; the older cswap and claude-swap keep working.
+aswap = "claude_swap.cli:main"
+agent-swap = "claude_swap.cli:main"
 cswap = "claude_swap.cli:main"
+claude-swap = "claude_swap.cli:main"
 
 [build-system]
 requires = ["hatchling"]

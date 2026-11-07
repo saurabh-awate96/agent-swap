@@ -1,13 +1,13 @@
 <!-- README rule: say what the user can do, give a minimal example, and mention only caveats that change their decision.
      Mechanics go in docs/, rationale in the PR. When behavior changes, edit the existing text instead of appending. -->
 
-# claude-swap
+# agent-swap
 
 **Every Claude and Codex account you own, one keystroke apart.**
 
 Switch between your accounts without logging out, let it switch for you before you hit a rate limit, watch every account's usage in a terminal or browser dashboard, and run accounts side by side. Works with the Claude Code CLI, the VS Code extension and the Codex CLI.
 
-[![CI](https://github.com/saurabh-awate96/claude-swap/actions/workflows/ci.yml/badge.svg)](https://github.com/saurabh-awate96/claude-swap/actions/workflows/ci.yml)
+[![CI](https://github.com/saurabh-awate96/agent-swap/actions/workflows/ci.yml/badge.svg)](https://github.com/saurabh-awate96/agent-swap/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-informational)](LICENSE)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-informational)
 ![macOS | Linux | Windows](https://img.shields.io/badge/macOS%20%7C%20Linux%20%7C%20Windows-supported-informational)
@@ -28,28 +28,28 @@ Switch between your accounts without logging out, let it switch for you before y
 ### One line (macOS / Linux)
 
 ```bash
-curl -LsSf https://raw.githubusercontent.com/saurabh-awate96/claude-swap/main/install.sh | sh
+curl -LsSf https://raw.githubusercontent.com/saurabh-awate96/agent-swap/main/install.sh | sh
 ```
 
 Installs cswap with uv (or pipx if you have it; it fetches uv from astral.sh if you have neither), adds it to your PATH, then opens [`cswap setup`](#guided-setup). From a clone, run `./install.sh` instead. Re-running it upgrades. `CSWAP_NO_SETUP=1` skips the guided screen; `CSWAP_SPEC` installs from a different path or URL.
 
-Windows (PowerShell, not tested yet): `irm https://raw.githubusercontent.com/saurabh-awate96/claude-swap/main/install.ps1 | iex`
+Windows (PowerShell, not tested yet): `irm https://raw.githubusercontent.com/saurabh-awate96/agent-swap/main/install.ps1 | iex`
 
 ### With uv or pipx
 
 ```bash
-uv tool install git+https://github.com/saurabh-awate96/claude-swap
+uv tool install git+https://github.com/saurabh-awate96/agent-swap
 # or
-pipx install git+https://github.com/saurabh-awate96/claude-swap
+pipx install git+https://github.com/saurabh-awate96/agent-swap
 ```
 
-This is a fork of [realiti4/claude-swap](https://github.com/realiti4/claude-swap). The `claude-swap` on PyPI is the upstream release and does not have `setup`, `gui`, `codex` or `onboard`, so install from this repository.
+agent-swap is the former claude-swap fork of [realiti4/claude-swap](https://github.com/realiti4/claude-swap), renamed because it now switches Codex accounts as well. The `claude-swap` on PyPI is the upstream release and does not have `setup`, `gui`, `codex` or `onboard`, so install from this repository.
 
 ### From source
 
 ```bash
-git clone https://github.com/saurabh-awate96/claude-swap.git
-cd claude-swap
+git clone https://github.com/saurabh-awate96/agent-swap.git
+cd agent-swap
 uv sync
 uv run cswap help
 ```
@@ -59,11 +59,15 @@ uv run cswap help
 ```bash
 cswap upgrade          # uv/pipx installs on macOS/Linux: auto-detects and upgrades
 # or run your installer directly:
-uv tool upgrade claude-swap
-pipx upgrade claude-swap
+uv tool upgrade agent-swap
+pipx upgrade agent-swap
 ```
 
 Installed from a git URL or a folder, it upgrades from that same source, and the "newer version on PyPI" notice stays off, because PyPI's release is not yours.
+
+### Names
+
+The command is `aswap`; `agent-swap`, `cswap` and `claude-swap` run the same program, so existing scripts, cron lines and habits keep working (this README still writes `cswap` in its examples). Renaming does not touch your saved accounts: the data folders and Keychain entries keep their old `claude-swap` names. The one-line installer replaces an old `claude-swap` install, since both provide `cswap`.
 
 ## Usage
 
@@ -141,13 +145,13 @@ Not sure which one? `cswap list` is the dashboard — every account's plan, 5-ho
 cswap list
 ```
 
-Or let claude-swap auto-pick by remaining quota — `cswap switch --strategy best` (most quota left) or `--strategy next-available` (skip rate-limited accounts).
+Or let agent-swap auto-pick by remaining quota — `cswap switch --strategy best` (most quota left) or `--strategy next-available` (skip rate-limited accounts).
 
 **Note:** You usually don't need to restart — on Linux/Windows the new account is picked up automatically, and on macOS after the Keychain cache expires. To apply it instantly, restart Claude Code or reopen the VS Code extension tab. See [Tips](#tips) for the per-platform details.
 
 ### Automatic switching
 
-Let claude-swap watch your usage and switch for you. When the active account's 5-hour or 7-day window reaches the threshold (default 90%), it switches to the account with the most quota left — before you hit the limit, and safe to run while Claude Code is working:
+Let agent-swap watch your usage and switch for you. When the active account's 5-hour or 7-day window reaches the threshold (default 90%), it switches to the account with the most quota left — before you hit the limit, and safe to run while Claude Code is working:
 
 ```bash
 cswap auto                     # foreground loop, polls every 60s
@@ -327,8 +331,8 @@ cswap unclaimed                 # List stashed credential entries (slot + why th
 cswap unclaimed --purge ID      # Drop one (deletes its bytes; recover with /login + `cswap add`)
 cswap tui                       # Interactive dashboard (also: bare `cswap`)
 cswap watch                     # Dashboard, opened on the live watch page
-cswap upgrade                   # Upgrade claude-swap to the latest version
-cswap purge                     # Remove all claude-swap data
+cswap upgrade                   # Upgrade agent-swap to the latest version
+cswap purge                     # Remove all agent-swap data
 ```
 
 The original flag spellings (`cswap --switch`, `cswap --list`, ...) keep working.
@@ -370,7 +374,7 @@ On Linux/WSL, set `XDG_DATA_HOME` to override the default location.
 Needs the `menubar` extra (macOS only):
 
 ```bash
-uv tool install 'claude-swap[menubar]'   # or: pipx install 'claude-swap[menubar]'
+uv tool install 'agent-swap[menubar] @ git+https://github.com/saurabh-awate96/agent-swap'
 cswap menubar
 ```
 
@@ -529,9 +533,9 @@ cswap purge
 Then uninstall the tool:
 
 ```bash
-uv tool uninstall claude-swap
+uv tool uninstall agent-swap
 # or
-pipx uninstall claude-swap
+pipx uninstall agent-swap
 ```
 
 ## Requirements
@@ -542,6 +546,6 @@ pipx uninstall claude-swap
 
 ## Credits and license
 
-A fork of [realiti4/claude-swap](https://github.com/realiti4/claude-swap) by Onur Cetinkol, which provides the switching engine, the terminal dashboard and the menu bar app. This fork adds the guided setup and installer, Codex support, the web dashboard, `cswap onboard`, the opt-in keepalive, and a round of reliability fixes (see [CHANGELOG.md](CHANGELOG.md)).
+Formerly the claude-swap fork of [realiti4/claude-swap](https://github.com/realiti4/claude-swap) by Onur Cetinkol, which provides the switching engine, the terminal dashboard and the menu bar app. This fork adds the guided setup and installer, Codex support, the web dashboard, `cswap onboard`, the opt-in keepalive, and a round of reliability fixes (see [CHANGELOG.md](CHANGELOG.md)).
 
 Security reports: [SECURITY.md](SECURITY.md). MIT license, see [LICENSE](LICENSE).
