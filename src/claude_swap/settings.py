@@ -71,6 +71,10 @@ class AutoSwitchSettings:
     # 5h/7d windows still have headroom. None = account-wide 5h/7d only
     # (default).
     model: str | None = None
+    # Opt-in: keep idle accounts' logins warm by sending one tiny real request
+    # per slot through the real ``claude`` client (see autoswitch.py). Costs a
+    # real request per ping and starts that account's 5-hour window.
+    keepalive: bool = False
 
 
 @dataclass(frozen=True)
@@ -193,6 +197,10 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         SettingSpec(
             "autoswitch", "model", "model", "string",
             help="Also switch on these models' weekly limits (e.g. Fable, Fable,Opus, or all)",
+        ),
+        SettingSpec(
+            "autoswitch", "keepalive", "keepalive", "bool",
+            help="Keep idle accounts logged in via a tiny real claude request, at most one per 8h each (opt-in: uses quota)",
         ),
         SettingSpec(
             "ui", "theme", "theme", "choice", choices=("dark", "light", "auto"),
