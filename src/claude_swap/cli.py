@@ -1239,42 +1239,73 @@ def _onboard_command(argv: list[str]) -> None:
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     args = parser.parse_args(argv)
 
+    try:
+        switcher = ClaudeAccountSwitcher(debug=args.debug)
+        _guard_root(switcher)
+        _onboard_accounts(switcher)
+    except ClaudeSwitchError as e:
+        error(f"Error: {e}")
+        sys.exit(1)
+    except (KeyboardInterrupt, EOFError):
+        print(dimmed("\nCancelled"))
+        sys.exit(130)
+
+
+def _onboard_accounts(switcher: ClaudeAccountSwitcher) -> None:
+    """The onboard loop, shared by `cswap onboard` and `cswap setup`."""
     import shutil
     import subprocess
+
+    claude = shutil.which("claude")
+    if claude is None:
+        raise ClaudeSwitchError(
+            "Claude Code (`claude`) was not found on PATH. Install it first."
+        )
+
+    if switcher._get_current_identity_triple() is not None:
+        answer = input("You are already logged in. Save that account first? [Y/n] ")
+        if answer.strip().lower() in ("", "y", "yes"):
+            switcher.add_account()
+
+    print(dimmed("Do not run /logout between accounts: it can revoke the one you leave."))
+    while True:
+        email = input(
+            "Email of the next account to add (blank to finish): "
+        ).strip()
+        if not email:
+            break
+        # Check the address before launching a browser login for it.
+        if not switcher._validate_email(email):
+            warning(f"'{email}' does not look like an email address.")
+            continue
+        if subprocess.run([claude, "auth", "login", "--email", email]).returncode != 0:
+            warning(f"Login for {email} did not complete; nothing was saved.")
+            continue
+        try:
+            switcher.add_account()
+        except ClaudeSwitchError as e:
+            warning(f"Could not save {email}: {e}")
+    switcher.list_accounts()
+
+
+def _setup_command(argv: list[str]) -> None:
+    """Handle `cswap setup`: the guided first-run screen (see setup_wizard)."""
+    parser = argparse.ArgumentParser(
+        prog=f"{_prog_name()} setup",
+        description=(
+            "Guided setup: check Claude Code and Codex, save your logins, "
+            "pick an auto-switch point, open a dashboard. Safe to re-run."
+        ),
+    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    args = parser.parse_args(argv)
+
+    from claude_swap import setup_wizard
 
     try:
         switcher = ClaudeAccountSwitcher(debug=args.debug)
         _guard_root(switcher)
-        claude = shutil.which("claude")
-        if claude is None:
-            raise ClaudeSwitchError(
-                "Claude Code (`claude`) was not found on PATH. Install it first."
-            )
-
-        if switcher._get_current_identity_triple() is not None:
-            answer = input("You are already logged in. Save that account first? [Y/n] ")
-            if answer.strip().lower() in ("", "y", "yes"):
-                switcher.add_account()
-
-        print(dimmed("Do not run /logout between accounts: it can revoke the one you leave."))
-        while True:
-            email = input(
-                "Email of the next account to add (blank to finish): "
-            ).strip()
-            if not email:
-                break
-            # Check the address before launching a browser login for it.
-            if not switcher._validate_email(email):
-                warning(f"'{email}' does not look like an email address.")
-                continue
-            if subprocess.run([claude, "auth", "login", "--email", email]).returncode != 0:
-                warning(f"Login for {email} did not complete; nothing was saved.")
-                continue
-            try:
-                switcher.add_account()
-            except ClaudeSwitchError as e:
-                warning(f"Could not save {email}: {e}")
-        switcher.list_accounts()
+        sys.exit(setup_wizard.run(switcher))
     except ClaudeSwitchError as e:
         error(f"Error: {e}")
         sys.exit(1)
@@ -1479,6 +1510,9 @@ def main() -> None:
     if argv and argv[0] == "onboard":
         _onboard_command(argv[1:])
         return
+    if argv and argv[0] == "setup":
+        _setup_command(argv[1:])
+        return
     if argv and argv[0] == "gui":
         _gui_command(argv[1:])
         return
@@ -1515,6 +1549,7 @@ Commands:
   %(prog)s switch                     rotate to the next account
   %(prog)s switch <num|email>         switch to a specific account
   %(prog)s add                        add the current account
+  %(prog)s setup                      guided first-run: logins, auto-switch, dashboards
   %(prog)s onboard                    add all your accounts, one guided login each
   %(prog)s gui [--write]              local web dashboard (read-only unless --write)
   %(prog)s add-token [TOKEN|-]        register a setup-token or API key
