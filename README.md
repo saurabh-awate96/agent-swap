@@ -198,11 +198,11 @@ Run `cswap` on its own (or `cswap tui`) for the full-screen dashboard: live usag
 
 ### Web dashboard (GUI)
 
-Prefer a window to a terminal? `cswap gui` opens a dashboard in your browser: a card per account with 5-hour and 7-day bars, reset countdowns, and your switch line marked on each bar.
+Prefer a window to a terminal? `cswap gui` opens a dashboard in your browser, laid out like the terminal dashboard: every Claude account with its 5-hour and 7-day bars, reset countdowns and your switch line, and your Codex accounts underneath.
 
 ```bash
 cswap gui                # read-only: look, don't touch
-cswap gui --write        # also switch, enable/disable, and add the current login
+cswap gui --write        # also switch (Claude and Codex), enable/disable, and add the current login
 cswap gui --no-open      # print the link instead of opening a browser
 ```
 

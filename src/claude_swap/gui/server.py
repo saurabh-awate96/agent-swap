@@ -15,7 +15,9 @@ import json
 import logging
 import re
 import secrets
+import shutil
 import threading
+import time
 from functools import partial
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
@@ -28,6 +30,8 @@ from claude_swap.tui.data import run_action
 
 POLL_SECONDS = 3
 MAX_BODY = 4096
+# Codex usage comes from scanning local rollout files; once per poll is wasteful.
+CODEX_REFRESH_S = 30
 
 # Slot numbers only. An email or alias would let `switch_to` reach its
 # interactive disambiguation prompt, and the page never needs to send one.
@@ -65,11 +69,13 @@ class _Reject(Exception):
 class GuiServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, switcher, *, write: bool = False, port: int = 0):
+    def __init__(self, switcher, *, write: bool = False, port: int = 0, codex=None):
         # 127.0.0.1 only -- never 0.0.0.0 or ::.
         super().__init__(("127.0.0.1", port), _Handler)
         self.switcher = switcher
         self.write = write
+        self._codex = codex  # None: built on first use, so Claude-only users pay nothing
+        self._codex_rows: tuple[float, dict] | None = None
         self.token = secrets.token_urlsafe(16)  # per run, never persisted
         self.write_lock = threading.Lock()
         self.hosts = {
@@ -83,6 +89,32 @@ class GuiServer(ThreadingHTTPServer):
             path: ((pkg / name).read_bytes(), ctype)
             for path, (name, ctype) in _ASSETS.items()
         }
+
+
+    def codex(self):
+        if self._codex is None:
+            from claude_swap.codex import Codex
+
+            self._codex = Codex()
+        return self._codex
+
+    def codex_payload(self) -> dict:
+        """Codex accounts, cached briefly. A Codex problem (keyring mode, a torn
+        roster) is reported beside an empty list so it cannot blank the Claude half."""
+        now = time.monotonic()
+        cached = self._codex_rows
+        if cached is not None and now - cached[0] < CODEX_REFRESH_S:
+            return cached[1]
+        try:
+            # Reading must not write: persist only when changes are allowed.
+            payload = {"accounts": self.codex().rows(persist=self.write)}
+        except ClaudeSwitchError as e:
+            payload = {"accounts": [], "error": str(e)}
+        payload["schemaVersion"] = SCHEMA_VERSION
+        # So the page can offer "add current login" before the first account exists.
+        payload["installed"] = shutil.which("codex") is not None
+        self._codex_rows = (now, payload)
+        return payload
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -188,6 +220,8 @@ class _Handler(BaseHTTPRequestHandler):
             })
         elif path == "/api/accounts":
             self._json(200, self.server.switcher.list_accounts(json_output=True))
+        elif path == "/api/codex":
+            self._json(200, self.server.codex_payload())
         else:
             self._fail(404, "NotFound", "no such page")
 
@@ -199,6 +233,8 @@ class _Handler(BaseHTTPRequestHandler):
             "/api/switch": self._switch,
             "/api/disable": self._disable,
             "/api/add-current": self._add_current,
+            "/api/codex/switch": self._codex_switch,
+            "/api/codex/add-current": self._codex_add_current,
         }.get(urlsplit(self.path).path)
         if action is None:
             self._fail(404, "NotFound", "no such endpoint")
@@ -258,6 +294,25 @@ class _Handler(BaseHTTPRequestHandler):
         if body:
             self._fail(400, "BadRequest", "unexpected field")
         self._finish(self.server.switcher.add_account, {})
+
+    def _codex_switch(self, body: dict) -> None:
+        number = self._number(body, {"number"})
+        slot, changed = self.server.codex().switch(number)
+        self.server._codex_rows = None
+        self._json(200, {
+            "schemaVersion": SCHEMA_VERSION, "switched": changed, "to": {"number": slot},
+            "message": "Running Codex sessions keep their account until restarted.",
+        })
+
+    def _codex_add_current(self, body: dict) -> None:
+        if body:
+            self._fail(400, "BadRequest", "unexpected field")
+        slot, created = self.server.codex().add()
+        self.server._codex_rows = None
+        self._json(200, {
+            "schemaVersion": SCHEMA_VERSION, "ok": True, "number": slot,
+            "message": f"{'Added' if created else 'Refreshed'} Codex slot {slot}",
+        })
 
     def _finish(self, call, extra: dict) -> None:
         result = run_action(call)

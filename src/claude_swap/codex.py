@@ -415,13 +415,15 @@ class Codex:
                 changed = True
         return changed
 
-    def rows(self) -> list[dict]:
+    def rows(self, persist: bool = True) -> list[dict]:
+        """One dict per stored account. ``persist=False`` writes nothing (the
+        read-only dashboard): usage is folded in for this call only."""
         self._require_file_store()
         data = self._load()
         if data["accounts"]:
             with self._locked(codex_lock=False):
                 data = self._load()
-                if self._refresh_usage(data):
+                if self._refresh_usage(data) and persist:
                     self._save(data)
         active = data["activeAccountNumber"]
         return [

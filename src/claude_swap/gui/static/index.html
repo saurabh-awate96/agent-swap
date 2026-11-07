@@ -8,13 +8,20 @@
 </head>
 <body>
 <header>
-  <h1>cswap</h1>
-  <span id="mode" class="chip">read-only</span>
+  <span class="muted">watching all accounts</span>
+  <span id="mode" class="muted"></span>
   <span id="updated" class="muted"></span>
-  <button id="add" hidden>Add current login</button>
 </header>
 <p id="notice" class="muted" role="status"></p>
-<main id="accounts" aria-live="polite"></main>
+<section>
+  <div class="section-head"><span class="muted">claude</span><button id="add" hidden>add current login</button></div>
+  <main id="accounts" aria-live="polite"></main>
+</section>
+<section id="codex" hidden>
+  <div class="section-head"><span class="muted">codex</span><button id="codex-add" hidden>add current login</button></div>
+  <p id="codex-note" class="muted"></p>
+  <main id="codex-accounts" aria-live="polite"></main>
+</section>
 <script src="/app.js"></script>
 </body>
 </html>

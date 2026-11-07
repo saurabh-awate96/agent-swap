@@ -1,45 +1,47 @@
+/* Mirrors the TUI: flat, low-chrome, monospace, the same palette and bar glyphs.
+   Dark is the default (cswap-dark); the light companion follows the system. */
 :root {
-  --bg: #f6f6f4; --card: #ffffff; --text: #1d1d1b; --muted: #6b6b66;
-  --line: #e2e2dc; --bar: #e8e8e2; --ok: #2f7d4f; --warn: #b7791f;
-  --bad: #b3372f; --accent: #2b5fd9; --tick: #1d1d1b;
+  --bg: #141414; --surface: #1e1e1e; --panel: #262626;
+  --fg: #e8e4de; --muted: #8a8a8a; --accent: #d7875f;
+  --ok: #87af87; --warn: #d7af5f; --crit: #d75f5f; --track: #3a3a3a;
 }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg: #161615; --card: #20201e; --text: #ececE6; --muted: #9a9a92;
-    --line: #34342f; --bar: #2f2f2b; --ok: #5cc183; --warn: #e0a84a;
-    --bad: #f0786f; --accent: #7aa2ff; --tick: #ececE6;
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg: #faf7f2; --surface: #efeae1; --panel: #e2dbcf;
+    --fg: #2b2723; --muted: #635d55; --accent: #954c2a;
+    --ok: #3d6b3d; --warn: #795911; --crit: #ad3128; --track: #cec7ba;
   }
 }
 * { box-sizing: border-box; }
 body {
-  margin: 0; padding: 16px; background: var(--bg); color: var(--text);
-  font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+  margin: 0; padding: 16px; background: var(--bg); color: var(--fg);
+  font: 15px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 }
-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 4px; }
-h1 { font-size: 20px; margin: 0; }
-.muted { color: var(--muted); font-size: 13px; }
-.chip {
-  font-size: 12px; padding: 2px 8px; border: 1px solid var(--line);
-  border-radius: 999px; color: var(--muted);
-}
-.chip.write { color: var(--warn); border-color: var(--warn); }
-.chip.active { color: var(--ok); border-color: var(--ok); }
-.chip.bad { color: var(--bad); border-color: var(--bad); }
-main { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
-.card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
-.card h2 { font-size: 16px; margin: 0 0 6px; overflow-wrap: anywhere; }
-.row { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
-.win { margin: 8px 0; }
-.win .label { display: flex; justify-content: space-between; font-size: 13px; }
-.bar { position: relative; height: 8px; background: var(--bar); border-radius: 4px; margin-top: 3px; }
-.bar .fill { height: 100%; border-radius: 4px; background: var(--ok); }
-.bar .fill.warn { background: var(--warn); }
-.bar .fill.bad { background: var(--bad); }
-.bar .tick { position: absolute; top: -2px; width: 2px; height: 12px; background: var(--tick); }
-.actions { display: flex; gap: 8px; margin-top: 10px; }
+header { display: flex; flex-wrap: wrap; gap: 4px 24px; padding: 0 12px; }
+#notice { padding: 0 12px; margin: 4px 0 0; min-height: 1.5em; }
+section { margin-top: 12px; }
+.section-head { display: flex; gap: 16px; align-items: baseline; padding: 0 12px; }
+.muted { color: var(--muted); }
+.dim { opacity: 0.6; }
+main { padding: 4px 12px; }
+.acct { margin: 12px 0 18px; padding-left: 10px; border-left: 3px solid transparent; }
+.acct.active { border-left-color: var(--accent); }
+.head { overflow-wrap: anywhere; }
+.num { font-weight: bold; margin-right: 12px; white-space: pre; }
+.alias { color: var(--accent); font-weight: bold; }
+.on { color: var(--accent); font-weight: bold; margin-left: 12px; }
+.badge { margin-left: 12px; color: var(--muted); }
+.row { display: flex; flex-wrap: wrap; gap: 0 12px; padding-left: 28px; }
+.row .label { color: var(--muted); min-width: 5ch; }
+.bar { white-space: pre; }
+.pct { min-width: 4ch; text-align: right; }
+.ok { color: var(--ok); } .warn { color: var(--warn); } .crit { color: var(--crit); }
+.track { color: var(--track); } .tick { color: var(--warn); }
+.note { padding-left: 28px; }
+.acts { padding-left: 28px; margin-top: 2px; display: flex; gap: 12px; }
 button {
-  font: inherit; padding: 5px 12px; border-radius: 6px; cursor: pointer;
-  border: 1px solid var(--line); background: var(--card); color: var(--text);
+  font: inherit; color: var(--muted); background: none; border: 0; padding: 0;
+  cursor: pointer; text-decoration: underline;
 }
-button:hover { border-color: var(--accent); }
-button:disabled { opacity: 0.5; cursor: default; }
+button:hover { color: var(--fg); }
+button:disabled { opacity: 0.4; cursor: default; text-decoration: none; }

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from claude_swap.exceptions import AccountNotFoundError
+from claude_swap.exceptions import AccountNotFoundError, ConfigError, SwitchError
 from claude_swap.gui.server import GuiServer
 
 
@@ -58,28 +58,60 @@ class StubSwitcher:
         print("Added Account-2.")
 
 
+class StubCodex:
+    """The Codex calls the server makes, recorded; never reads a real ~/.codex."""
+
+    def __init__(self):
+        self.calls: list[tuple] = []
+        self.error: Exception | None = None
+
+    def rows(self, persist=True):
+        self.calls.append(("rows", persist))
+        if self.error is not None:
+            raise self.error
+        return [{
+            "slot": 1, "alias": "main", "email": "c@example.com", "plan": "plus",
+            "authMode": "chatgpt", "active": True,
+            "usage": {"primary": {"used_percent": 45.0, "window_minutes": 300, "resets_at": 1},
+                      "secondary": None, "seenAt": "2026-11-07T12:00:00Z"},
+        }]
+
+    def switch(self, target=None, strategy=None, force=False):
+        self.calls.append(("switch", target))
+        return int(target), True
+
+    def add(self, slot=None, alias=None, yes=False):
+        self.calls.append(("add",))
+        return 2, True
+
+
 @pytest.fixture
 def stub(tmp_path):
     return StubSwitcher(tmp_path)
 
 
-def _start(stub, write):
-    server = GuiServer(stub, write=write)
+@pytest.fixture
+def codex():
+    return StubCodex()
+
+
+def _start(stub, write, codex=None):
+    server = GuiServer(stub, write=write, codex=codex or StubCodex())
     threading.Thread(target=server.serve_forever, daemon=True).start()
     return server
 
 
 @pytest.fixture
-def ro(stub):
-    server = _start(stub, write=False)
+def ro(stub, codex):
+    server = _start(stub, write=False, codex=codex)
     yield server
     server.shutdown()
     server.server_close()
 
 
 @pytest.fixture
-def rw(stub):
-    server = _start(stub, write=True)
+def rw(stub, codex):
+    server = _start(stub, write=True, codex=codex)
     yield server
     server.shutdown()
     server.server_close()
@@ -352,3 +384,60 @@ class TestPage:
             assert not bad.search(text), name
         assert "<script>" not in (root / "index.html").read_text()  # no inline script
         assert "<style" not in (root / "index.html").read_text()
+
+
+class TestCodex:
+    def test_accounts_are_served_beside_claudes(self, ro):
+        status, body, _ = call(ro, "GET", "/api/codex")
+        assert status == 200
+        assert body["accounts"][0]["email"] == "c@example.com"
+        assert body["schemaVersion"] == 1
+
+    def test_reading_never_writes_while_read_only(self, ro, codex):
+        call(ro, "GET", "/api/codex")
+        assert codex.calls == [("rows", False)]
+
+    def test_reading_may_persist_usage_once_changes_are_allowed(self, rw, codex):
+        call(rw, "GET", "/api/codex")
+        assert codex.calls == [("rows", True)]
+
+    def test_the_scan_is_cached_between_polls(self, ro, codex):
+        for _ in range(3):
+            call(ro, "GET", "/api/codex")
+        assert codex.calls == [("rows", False)]
+
+    def test_a_codex_problem_does_not_blank_the_page(self, ro, codex):
+        codex.error = ConfigError("Codex is set to keyring")
+        status, body, _ = call(ro, "GET", "/api/codex")
+        assert status == 200
+        assert body["accounts"] == []
+        assert "keyring" in body["error"]
+        assert call(ro, "GET", "/api/accounts")[0] == 200  # Claude half unaffected
+
+    def test_it_needs_the_same_token_and_host(self, ro, codex):
+        assert call(ro, "GET", "/api/codex", token=False)[0] == 401
+        assert call(ro, "GET", "/api/codex", host="evil.example")[0] == 403
+        assert codex.calls == []
+
+    def test_switch_and_add_are_refused_while_read_only(self, ro, codex):
+        assert post(ro, "/api/codex/switch", {"number": "2"})[0] == 403
+        assert post(ro, "/api/codex/add-current", {})[0] == 403
+        assert codex.calls == []
+
+    def test_switch_and_add_when_changes_are_allowed(self, rw, codex):
+        status, body, _ = post(rw, "/api/codex/switch", {"number": "2"})
+        assert status == 200 and body["switched"] is True
+        assert "restarted" in body["message"]
+        assert post(rw, "/api/codex/add-current", {})[0] == 200
+        assert [c for c in codex.calls if c[0] != "rows"] == [("switch", "2"), ("add",)]
+
+    @pytest.mark.parametrize("body", [{"number": "a@b.com"}, {"number": 2}, {}, {"number": "2", "force": True}])
+    def test_only_plain_slot_numbers_are_accepted(self, rw, codex, body):
+        assert post(rw, "/api/codex/switch", body)[0] == 400
+        assert codex.calls == []
+
+    def test_a_codex_error_is_a_400_with_its_type(self, rw, codex):
+        codex.switch = lambda *a, **k: (_ for _ in ()).throw(SwitchError("not managed"))
+        status, body, _ = post(rw, "/api/codex/switch", {"number": "2"})
+        assert status == 400
+        assert body["error"] == {"type": "SwitchError", "message": "not managed"}
