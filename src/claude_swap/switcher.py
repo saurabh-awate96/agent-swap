@@ -6147,6 +6147,7 @@ class ClaudeAccountSwitcher:
         show_token_status: bool = False,
         json_output: bool = False,
         fetch: set[str] | None = None,
+        refresh_idle: bool = True,
     ) -> dict | None:
         """List all managed accounts.
 
@@ -6155,7 +6156,9 @@ class ClaudeAccountSwitcher:
 
         ``fetch`` restricts which accounts *may* be fetched this pass (the TUI
         watch view's adaptive set); ``None`` — the CLI default — leaves every
-        stale account eligible.
+        stale account eligible. ``refresh_idle=False`` is for callers that poll
+        on a timer (the web dashboard): an expired idle token is reported, not
+        refreshed, exactly as the terminal dashboard does.
         """
         if not self.sequence_file.exists():
             # JSON mode must never prompt — emit an empty list instead of the
@@ -6171,7 +6174,9 @@ class ClaudeAccountSwitcher:
             return None
 
         accounts_info = self._build_accounts_info()
-        entries = self._collect_usage_entries(accounts_info, fetch=fetch)
+        entries = self._collect_usage_entries(
+            accounts_info, fetch=fetch, refresh_idle=refresh_idle
+        )
         plans = self._plans_for_pass(accounts_info, fetch)
 
         if json_output:

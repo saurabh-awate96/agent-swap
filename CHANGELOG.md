@@ -18,6 +18,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 ### Changed
 
 - **Idle accounts are no longer refreshed in the background.** A lapsed idle token shows as "token expired" and is refreshed on demand (`cswap list`, `cswap switch`), or when auto-switch must leave the active account and no candidate has readable usage.
+- The web dashboard polls without refreshing idle accounts' tokens, like the terminal dashboard (`list_accounts(refresh_idle=False)`).
 - The "newer version on PyPI" notice is skipped for installs from a git URL or a folder, since PyPI's release is not theirs.
 - The README leads with the one-line install and a screenshot, and links its own docs rather than upstream's.
 

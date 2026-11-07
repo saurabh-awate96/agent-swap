@@ -219,7 +219,12 @@ class _Handler(BaseHTTPRequestHandler):
                 },
             })
         elif path == "/api/accounts":
-            self._json(200, self.server.switcher.list_accounts(json_output=True))
+            # The page polls on a timer: unattended, so it never refreshes an idle
+            # account's token (same rule as the terminal dashboard).
+            self._json(
+                200,
+                self.server.switcher.list_accounts(json_output=True, refresh_idle=False),
+            )
         elif path == "/api/codex":
             self._json(200, self.server.codex_payload())
         else:

@@ -31,6 +31,8 @@ Writes carry only a slot **number**, validated as digits; they never carry an em
 
 ## In the browser
 
+The page refreshes on a timer, so like the terminal dashboard it never refreshes an idle account's token: a lapsed one shows as "token expired" until you use that account or run `cswap list`.
+
 A strict `Content-Security-Policy` (own origin only, no inline script, no framing). Every value from outside the page (email, alias, organisation name) is placed with `textContent`, never parsed as HTML. There is no polling timer that rebuilds the page under your cursor: it refreshes data and re-renders in one step.
 
 ## Shared machines
