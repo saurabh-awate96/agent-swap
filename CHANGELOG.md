@@ -1,7 +1,7 @@
 # Changelog
 
 Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
-[realiti4/claude-swap](https://github.com/realiti4/claude-swap); everything below is on top of its `1.0.0b1`.
+[realiti4/claude-swap](https://github.com/realiti4/claude-swap); everything below is on top of its `1.0.0`.
 
 ## Unreleased
 
