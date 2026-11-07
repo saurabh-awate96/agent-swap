@@ -31,6 +31,8 @@ cswap makes no request to OpenAI. Codex records rate-limit snapshots in its own 
 
 `switch --strategy best` picks the account with the most quota left by those numbers.
 
+Two limits follow from that. Only usage **on this machine** is recorded, so use from another computer or the Codex app does not show, and the numbers can be lower than OpenAI's. And each reading is credited to the stored account whose id matches the session's `creator_account_id`: sessions of a login cswap has not stored are ignored, never guessed onto another account. A window that has reset since the last reading is shown as unknown in the web dashboard (and as `reset` on the command line), not as 0%.
+
 ## Not built
 
 Auto-switching for Codex (the Claude engine's polling and thresholds) is not wired up: `cswap codex switch` is a manual or scripted action. Windows is untested.

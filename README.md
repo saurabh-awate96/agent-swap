@@ -296,7 +296,7 @@ cswap codex remove work
 - **Always `cswap codex add` the current login before running `codex login` for another.** A login cswap does not know is refused, never overwritten.
 - **Never `codex logout` a stored account.** It revokes the login on OpenAI's side, so the stored copy stops working.
 - **Running Codex sessions keep their account until restarted.** A switch affects Codex processes started afterwards.
-- Usage comes from Codex's own session files (`sessions/**/rollout-*.jsonl`), so an idle account shows the numbers from its last session. Only `cli_auth_credentials_store = "file"` (the default) is supported.
+- Usage comes from Codex's own session files (`sessions/**/rollout-*.jsonl`), so an idle account shows the numbers from its last session. Use on another device or in the Codex app is not in those files, so these numbers can be lower than OpenAI's own. Only `cli_auth_credentials_store = "file"` (the default) is supported.
 
 ### Other commands
 

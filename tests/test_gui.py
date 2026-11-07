@@ -42,6 +42,15 @@ class StubSwitcher:
             }],
         }
 
+    live = ("me@example.com", "")  # (email, org uuid) of the login Claude Code is using
+    saved = False
+
+    def _get_current_identity_triple(self):
+        return (self.live[0], self.live[1], "acct-uuid") if self.live else None
+
+    def _account_exists(self, email, organization_uuid):
+        return self.saved
+
     def switch_to(self, identifier, json_output=False, force=False):
         self.calls.append(("switch_to", identifier))
         if self.block is not None:
@@ -76,6 +85,12 @@ class StubCodex:
             "usage": {"primary": {"used_percent": 45.0, "window_minutes": 300, "resets_at": 1},
                       "secondary": None, "seenAt": "2026-11-07T12:00:00Z"},
         }]
+
+    state = "managed"
+
+    def status(self):
+        return {"state": self.state, "slot": 1 if self.state == "managed" else None,
+                "email": "live@example.com", "plan": "plus", "authMode": "chatgpt"}
 
     def switch(self, target=None, strategy=None, force=False):
         self.calls.append(("switch", target))
@@ -388,6 +403,25 @@ class TestPage:
 
 
 class TestCodex:
+    def test_a_live_claude_login_that_is_not_saved_is_reported(self, ro, stub):
+        _, body, _ = call(ro, "GET", "/api/accounts")
+        assert body["unsaved"] == {"email": "me@example.com", "isOrganization": False}
+
+    def test_a_saved_or_absent_live_login_reports_nothing(self, ro, stub):
+        stub.saved = True
+        assert call(ro, "GET", "/api/accounts")[1]["unsaved"] is None
+        stub.saved, stub.live = False, None
+        assert call(ro, "GET", "/api/accounts")[1]["unsaved"] is None
+
+    def test_a_live_codex_login_that_is_not_saved_is_reported(self, ro, codex):
+        codex.state = "unmanaged"
+        _, body, _ = call(ro, "GET", "/api/codex")
+        assert body["unsaved"] == {"email": "live@example.com", "plan": "plus", "authMode": "chatgpt"}
+
+    def test_a_managed_codex_login_reports_nothing_unsaved(self, ro, codex):
+        _, body, _ = call(ro, "GET", "/api/codex")
+        assert body["unsaved"] is None
+
     def test_polling_never_refreshes_an_idle_accounts_token(self, ro, stub):
         """The page polls on a timer: unattended, like the terminal dashboard."""
         status, _, _ = call(ro, "GET", "/api/accounts")

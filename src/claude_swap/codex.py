@@ -130,7 +130,8 @@ def _now() -> str:
 # -- usage, from Codex's own rollout files (no network) --------------------------
 
 _ROLLOUT_FILES = 50
-_TAIL_BYTES = 256 * 1024
+_TAIL_BYTES = 256 * 1024  # one backwards read
+_MAX_SCAN = 32 * 1024 * 1024  # how far from the end of a file to look
 
 
 def _window(w) -> dict | None:
@@ -140,29 +141,47 @@ def _window(w) -> dict | None:
         return None
 
 
-def _last_snapshot(fh, size: int) -> dict | None:
-    """The newest usable ``token_count`` rate-limit event in the file's tail.
+def _snapshot_in(line: bytes) -> dict | None:
+    """The usable ``token_count`` rate-limit reading in one rollout line, if any."""
+    if b'"token_count"' not in line:
+        return None
+    try:
+        event = json.loads(line)
+        limits = event["payload"]["rate_limits"]
+        if limits["limit_id"] != "codex":
+            return None
+        return {
+            "primary": _window(limits.get("primary")),
+            "secondary": _window(limits.get("secondary")),
+            "seenAt": event["timestamp"],
+        }
+    except (ValueError, KeyError, TypeError):
+        return None  # a torn last line, a null rate_limits, another event shape
 
-    shortcut: only the last 256 KB is read; a session with a longer quiet
-    tail simply yields nothing, so widen _TAIL_BYTES if that ever bites.
+
+def _last_snapshot(fh, size: int) -> dict | None:
+    """The newest usable ``token_count`` rate-limit event in the file.
+
+    Reads backwards in 256 KB blocks, joining a line that spans blocks, so one
+    oversized line (a big tool output) at the end of a long session cannot hide
+    the reading before it. A file that stayed that quiet for more than
+    ``_MAX_SCAN`` bytes yields nothing.
+
+    shortcut: the budget is 32 MB from the end; raise _MAX_SCAN if a session's
+    quiet tail ever outgrows it.
     """
-    fh.seek(max(0, size - _TAIL_BYTES))
-    lines = fh.read().split(b"\n")
-    for line in reversed(lines[1:] if size > _TAIL_BYTES else lines):
-        if b'"token_count"' not in line:
-            continue
-        try:
-            event = json.loads(line)
-            limits = event["payload"]["rate_limits"]
-            if limits["limit_id"] != "codex":
-                continue
-            return {
-                "primary": _window(limits.get("primary")),
-                "secondary": _window(limits.get("secondary")),
-                "seenAt": event["timestamp"],
-            }
-        except (ValueError, KeyError, TypeError):
-            continue  # a torn last line, a null rate_limits, another event shape
+    floor = max(0, size - _MAX_SCAN)
+    pos, carry = size, b""
+    while pos > floor:
+        start = max(floor, pos - _TAIL_BYTES)
+        fh.seek(start)
+        lines = (fh.read(pos - start) + carry).split(b"\n")
+        carry = lines.pop(0) if start > 0 else b""  # starts mid-line: finished by the next block back
+        for line in reversed(lines):
+            snap = _snapshot_in(line)
+            if snap:
+                return snap
+        pos = start
     return None
 
 
