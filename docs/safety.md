@@ -26,7 +26,7 @@ cswap only manages accounts you own. It has no feature for taking over someone e
 | Update check | at most once a day (an hour after a failure); skipped for git/folder installs | PyPI |
 | Keepalive (`autoswitch.keepalive`, **off by default**) | idle account whose token is about to lapse, at most once per 8 hours | Anthropic, through the real `claude` binary |
 | Codex | never | nothing: Codex usage is read from Codex's own session files |
-| Web dashboard | never | nothing outside your machine (`127.0.0.1` only) |
+| Web dashboard | the same usage reads as the first row, and never a token refresh for an idle account | the page itself is served on `127.0.0.1` only |
 
 Idle accounts are **not** refreshed in the background. An idle account whose access token lapsed shows "token expired" until you use it, which is deliberate: every token refresh by cswap is a request made with Claude Code's client id from a different program, and the fewer of those there are, the better.
 

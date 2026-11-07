@@ -29,8 +29,9 @@ class StubSwitcher:
         self.fail_with: Exception | None = None
         self.block: threading.Event | None = None
 
-    def list_accounts(self, json_output=False):
+    def list_accounts(self, json_output=False, refresh_idle=True):
         self.calls.append(("list",))
+        self.list_refresh_idle = refresh_idle
         return {
             "schemaVersion": 1,
             "activeAccountNumber": 1,
@@ -387,6 +388,12 @@ class TestPage:
 
 
 class TestCodex:
+    def test_polling_never_refreshes_an_idle_accounts_token(self, ro, stub):
+        """The page polls on a timer: unattended, like the terminal dashboard."""
+        status, _, _ = call(ro, "GET", "/api/accounts")
+        assert status == 200
+        assert stub.list_refresh_idle is False
+
     def test_accounts_are_served_beside_claudes(self, ro):
         status, body, _ = call(ro, "GET", "/api/codex")
         assert status == 200

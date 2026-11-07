@@ -1304,6 +1304,20 @@ class TestBackgroundCollectionNeverRefreshesIdleSlots:
             switcher._collect_usage_entries([info], fetch={"2"})
         assert fetch.call_args.kwargs["refresh_via"] == switcher.consume_backup_grant
 
+    def test_list_accounts_can_be_told_not_to_refresh(self, temp_home: Path):
+        """The web dashboard polls list_accounts on a timer, so it must be able
+        to ask for the unattended behaviour; the CLI default still refreshes."""
+        switcher = ClaudeAccountSwitcher()
+        with patch.object(switcher, "_build_accounts_info", return_value=[]), \
+             patch.object(switcher, "_collect_usage_entries", return_value={}) as c, \
+             patch.object(switcher, "_plans_for_pass", return_value={}), \
+             patch.object(switcher, "_build_list_payload", return_value={}):
+            switcher._setup_directories()
+            switcher._init_sequence_file()
+            switcher.list_accounts(json_output=True, refresh_idle=False)
+            switcher.list_accounts(json_output=True)
+        assert [call.kwargs["refresh_idle"] for call in c.call_args_list] == [False, True]
+
     def test_auto_engine_and_dashboard_entry_points_do_not_refresh(
         self, temp_home: Path
     ):
