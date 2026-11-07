@@ -7,6 +7,7 @@ import json
 import math
 import os
 import sys
+import time
 
 from claude_swap import __version__, paths, printer
 from claude_swap.exceptions import ClaudeSwitchError
@@ -1322,6 +1323,8 @@ def _codex_command(argv: list[str]) -> None:
     p_status = verb("status", "show which stored account is live")
     p_status.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
+    if args.verb == "switch" and args.target and args.strategy:
+        parser.error("give a target or --strategy, not both")
 
     try:
         cx = codex.Codex(debug=args.debug)
@@ -1336,7 +1339,8 @@ def _codex_command(argv: list[str]) -> None:
                 print("No Codex accounts. Run `cswap codex add` while logged in.")
             for r in rows:
                 name = r["alias"] or r["email"] or "(API key)"
-                print(f"{'*' if r['active'] else ' '} {r['slot']}: {name}  {dimmed(r['plan'])}")
+                use = codex.describe_usage(r["usage"], time.time())
+                print(f"{'*' if r['active'] else ' '} {r['slot']}: {name}  {dimmed(r['plan'])}  {use}")
         elif args.verb == "switch":
             slot, changed = cx.switch(args.target, strategy=args.strategy, force=args.force)
             print(f"{accent('Switched' if changed else 'Already on')} Codex slot {slot}")
@@ -1352,6 +1356,8 @@ def _codex_command(argv: list[str]) -> None:
             else:
                 slot = f"slot {st['slot']}" if st["slot"] else "NOT managed (run `cswap codex add`)"
                 print(f"Codex login: {st['email'] or '(API key)'} ({st['plan']}), {slot}")
+                if st["usage"]:
+                    print(f"  {codex.describe_usage(st['usage'], time.time())}")
     except ClaudeSwitchError as e:
         error(f"Error: {e}")
         sys.exit(1)

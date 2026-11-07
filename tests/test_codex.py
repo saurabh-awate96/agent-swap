@@ -611,3 +611,143 @@ def test_holding_the_lock_from_a_thread_blocks_then_releases(env):
     threading.Timer(0.1, lock.release).start()
     sw.switch("1")  # waits out the 0.1 s hold within the 0.3 s timeout
     assert b"rt-A-1" in env.live_bytes()
+
+
+# --- phase 3: usage from local rollout files ----------------------------------------
+
+NOW = datetime.now(timezone.utc)
+
+
+def window(pct, minutes=300, resets_in=3600):
+    return {"used_percent": pct, "window_minutes": minutes, "resets_at": int(NOW.timestamp()) + resets_in}
+
+
+def limits(primary, secondary, limit_id="codex"):
+    return {"limit_id": limit_id, "limit_name": None, "plan_type": "plus",
+            "primary": primary, "secondary": secondary, "credits": None}
+
+
+def rollout(env, name, creator=("user-A", "acct-A"), events=(), torn=False):
+    """Synthetic rollout: a session_meta line, then token_count events."""
+    meta = {"id": name, "base_instructions": "private words"}
+    if creator:
+        meta.update(creator_user_id=creator[0], creator_account_id=creator[1])
+    lines = [{"timestamp": "2026-11-05T09:00:00.000Z", "type": "session_meta", "payload": meta}]
+    for ts, rl in events:
+        lines.append({"timestamp": ts, "type": "event_msg",
+                      "payload": {"type": "token_count", "info": None, "rate_limits": rl}})
+    path = env.home / "sessions" / "2026" / "11" / "05" / f"rollout-{name}.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    text = "\n".join(json.dumps(x) for x in lines) + "\n"
+    path.write_text(text + ('{"timestamp": "2026-11-05T12:00:00.000Z", "type": "event_ms' if torn else ""))
+    return path
+
+
+def usage_by_slot(sw):
+    return {r["slot"]: r["usage"] for r in sw.rows()}
+
+
+def test_usage_is_attributed_by_creator_account_and_latest_event_wins(env):
+    sw = two_accounts(env)
+    rollout(env, "a", ("user-A", "acct-A"), [
+        ("2026-11-05T10:00:00.000Z", limits(window(10), window(20, 10080))),
+        ("2026-11-05T11:00:00.000Z", limits(window(30), window(25, 10080))),
+    ])
+    rollout(env, "b", ("user-B", "acct-B"), [("2026-11-05T10:30:00.000Z", limits(window(70), None))])
+    rollout(env, "c", ("user-C", "acct-C"), [("2026-11-05T10:30:00.000Z", limits(window(99), None))])
+    u = usage_by_slot(sw)
+    assert u[1]["primary"]["used_percent"] == 30 and u[1]["secondary"]["used_percent"] == 25
+    assert u[1]["seenAt"] == "2026-11-05T11:00:00.000Z"
+    assert u[2]["primary"]["used_percent"] == 70 and u[2]["secondary"] is None
+
+
+def test_usage_ignores_null_premium_legacy_and_torn_lines(env):
+    sw = two_accounts(env)
+    rollout(env, "a", ("user-A", "acct-A"), [
+        ("2026-11-05T10:00:00.000Z", limits(window(11), window(12, 10080))),
+        ("2026-11-05T11:00:00.000Z", limits(window(88), None, limit_id="premium")),
+        ("2026-11-05T11:30:00.000Z", None),
+    ], torn=True)
+    rollout(env, "old", None, [("2026-11-05T12:00:00.000Z", limits(window(77), None))])
+    u = usage_by_slot(sw)
+    assert u[1]["primary"]["used_percent"] == 11
+    assert u[2] is None  # the unattributed legacy rollout is not guessed onto anyone
+
+
+def test_usage_survives_rollout_rotation_and_stores_only_numbers(env):
+    sw = two_accounts(env)
+    path = rollout(env, "a", ("user-A", "acct-A"), [("2026-11-05T10:00:00.000Z", limits(window(42), None))])
+    usage_by_slot(sw)
+    path.unlink()
+    assert usage_by_slot(sw)[1]["primary"]["used_percent"] == 42
+    stored = json.loads(sw.seq.read_text())["accounts"]["1"]["usage"]
+    assert set(stored) == {"primary", "secondary", "seenAt"}
+    assert "private words" not in sw.seq.read_text()
+
+
+def test_an_expired_window_counts_as_zero_and_reads_reset():
+    now = NOW.timestamp()
+    usage = {"primary": window(90, resets_in=-5), "secondary": window(40, 10080), "seenAt": "2026-11-05T10:00:00.000Z"}
+    assert codex.load_percent(usage, now) == 40
+    text = codex.describe_usage(usage, now)
+    assert "5h reset" in text and "wk 40%" in text
+    assert codex.describe_usage(None, now) == "-"
+
+
+def test_cli_list_shows_usage(env, monkeypatch, capsys):
+    two_accounts(env)
+    rollout(env, "a", ("user-A", "acct-A"), [("2026-11-05T10:00:00.000Z", limits(window(30), window(25, 10080)))])
+    monkeypatch.setattr(sys, "argv", ["cswap", "codex", "list"])
+    cli.main()
+    out = capsys.readouterr().out
+    assert "5h 30%" in out and "wk 25%" in out and "a@example.com" in out
+
+
+def seed(env, a=None, b=None, c=None):
+    for creator, w in ((("user-A", "acct-A"), a), (("user-B", "acct-B"), b), (("user-C", "acct-C"), c)):
+        if w is not None:
+            rollout(env, creator[1], creator, [("2026-11-05T10:00:00.000Z", limits(*w))])
+
+
+def three_accounts(env):
+    sw = two_accounts(env)
+    env.login(make_auth(**C))
+    sw.add()
+    return sw
+
+
+def test_best_picks_the_lowest_load_and_counts_the_weekly_window(env):
+    sw = three_accounts(env)
+    seed(env, a=(window(5), window(100, 10080)), b=(window(50), window(10, 10080)), c=(window(20), None))
+    sw.switch("2")
+    assert sw.switch(None, strategy="best") == (3, True)  # A is capped weekly, C beats B
+
+
+def test_best_treats_a_reset_window_as_empty(env):
+    sw = three_accounts(env)
+    seed(env, a=(window(95, resets_in=-60), None), b=(window(50), None), c=(window(60), None))
+    assert sw.switch(None, strategy="best") == (1, True)
+
+
+def test_best_skips_api_keys_and_unknown_slots(env):
+    sw = env.sw()
+    env.login(make_auth(**A))
+    sw.add()
+    env.login(make_apikey_auth())
+    sw.add()
+    env.login(make_auth(**B))
+    sw.add()
+    seed(env, a=(window(80), None))  # B has no snapshot, the key never counts
+    assert sw.switch(None, strategy="best") == (1, True)
+
+
+def test_best_without_any_snapshot_falls_back_to_rotation(env):
+    sw = two_accounts(env)
+    assert sw.switch(None, strategy="best") == (1, True)
+
+
+def test_cli_rejects_a_target_with_a_strategy(env, monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["cswap", "codex", "switch", "1", "--strategy", "best"])
+    with pytest.raises(SystemExit) as e:
+        cli.main()
+    assert e.value.code == 2

@@ -16,13 +16,14 @@ import json
 import os
 import subprocess
 import sys
+import time
 import tomllib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
-from claude_swap import paths, spawn
+from claude_swap import paths, printer, spawn
 from claude_swap.credentials import CredentialStore
 from claude_swap.exceptions import (
     AccountNotFoundError,
@@ -124,6 +125,70 @@ def parse_auth(raw: bytes) -> Auth:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# -- usage, from Codex's own rollout files (no network) --------------------------
+
+_ROLLOUT_FILES = 50
+_TAIL_BYTES = 256 * 1024
+
+
+def _window(w) -> dict | None:
+    try:
+        return {k: float(w[k]) for k in ("used_percent", "window_minutes", "resets_at")}
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def _last_snapshot(fh, size: int) -> dict | None:
+    """The newest usable ``token_count`` rate-limit event in the file's tail.
+
+    shortcut: only the last 256 KB is read; a session with a longer quiet
+    tail simply yields nothing, so widen _TAIL_BYTES if that ever bites.
+    """
+    fh.seek(max(0, size - _TAIL_BYTES))
+    lines = fh.read().split(b"\n")
+    for line in reversed(lines[1:] if size > _TAIL_BYTES else lines):
+        if b'"token_count"' not in line:
+            continue
+        try:
+            event = json.loads(line)
+            limits = event["payload"]["rate_limits"]
+            if limits["limit_id"] != "codex":
+                continue
+            return {
+                "primary": _window(limits.get("primary")),
+                "secondary": _window(limits.get("secondary")),
+                "seenAt": event["timestamp"],
+            }
+        except (ValueError, KeyError, TypeError):
+            continue  # a torn last line, a null rate_limits, another event shape
+    return None
+
+
+def load_percent(usage: dict | None, now: float) -> float | None:
+    """Worst of the two windows; one that has reset since the snapshot counts as 0."""
+    if not usage:
+        return None
+    seen = [
+        0.0 if w["resets_at"] <= now else w["used_percent"]
+        for w in (usage.get("primary"), usage.get("secondary"))
+        if w
+    ]
+    return max(seen) if seen else None
+
+
+def describe_usage(usage: dict | None, now: float) -> str:
+    if not usage:
+        return "-"
+    cells = [
+        f"{label} reset" if w["resets_at"] <= now else f"{label} {w['used_percent']:.0f}%"
+        for label, w in (("5h", usage.get("primary")), ("wk", usage.get("secondary")))
+        if w
+    ]
+    seen = _when(usage["seenAt"])
+    age = f" ({printer.format_age(int(seen.timestamp() * 1000))})" if seen else ""
+    return " ".join(cells) + age
 
 
 def _confirm(question: str) -> bool:
@@ -315,9 +380,49 @@ class Codex:
         self._log.info(f"Codex slot {n} {'added' if created else 'refreshed'}")
         return n, created
 
+    def _refresh_usage(self, data: dict) -> bool:
+        """Fold the newest rollout snapshot per slot into ``data``. True if it changed."""
+        slots = {n: a for n, a in data["accounts"].items() if a["authMode"] != "apikey"}
+        found: dict[str, dict] = {}
+        files = [
+            f
+            for sub in ("sessions", "archived_sessions")
+            for f in (self.home / sub).rglob("rollout-*.jsonl")
+        ]
+        files.sort(key=lambda f: f.stat().st_mtime, reverse=True)
+        for f in files[:_ROLLOUT_FILES]:
+            try:
+                with f.open("rb") as fh:
+                    meta = json.loads(fh.readline())["payload"]
+                    account, user = meta["creator_account_id"], meta.get("creator_user_id")
+                    owners = [n for n, a in slots.items() if a["accountId"] == account]
+                    if len(owners) > 1:
+                        owners = [n for n in owners if slots[n].get("userId") == user]
+                    if len(owners) != 1:
+                        continue  # unknown account, or a rollout from before the field existed
+                    snap = _last_snapshot(fh, f.stat().st_size)
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+            if snap and snap["seenAt"] > found.get(owners[0], {"seenAt": ""})["seenAt"]:
+                found[owners[0]] = snap
+            if len(found) == len(slots):
+                break
+        changed = False
+        for n, snap in found.items():
+            held = data["accounts"][n].get("usage")
+            if not held or snap["seenAt"] > held["seenAt"]:
+                data["accounts"][n]["usage"] = snap
+                changed = True
+        return changed
+
     def rows(self) -> list[dict]:
         self._require_file_store()
         data = self._load()
+        if data["accounts"]:
+            with self._locked(codex_lock=False):
+                data = self._load()
+                if self._refresh_usage(data):
+                    self._save(data)
         active = data["activeAccountNumber"]
         return [
             {
@@ -335,6 +440,16 @@ class Codex:
     def _choose(self, data: dict, target: str | None, strategy: str | None) -> int:
         if target:
             return self._resolve(data, target)
+        if strategy == "best":
+            now = time.time()
+            load = {
+                int(n): load_percent(a.get("usage"), now)
+                for n, a in data["accounts"].items()
+                if a["authMode"] != "apikey"
+            }
+            load = {n: p for n, p in load.items() if p is not None}
+            if load:
+                return min(load, key=lambda n: (load[n], n))
         active = data["activeAccountNumber"]
         order = [n for n in data["sequence"] if data["accounts"][str(n)]["authMode"] != "apikey"]
         others = [n for n in order if n != active]
@@ -360,6 +475,7 @@ class Codex:
         self.root.mkdir(parents=True, exist_ok=True)
         with self._locked():
             data = self._load()
+            self._refresh_usage(data)  # saved with the switch, so it outlives rollout rotation
             t = self._choose(data, target, strategy)
             tblob = self._read_blob(t)
             if tblob is None:
