@@ -95,6 +95,31 @@ def _detect_install_method() -> str | None:
     return None
 
 
+def _installed_from_registry(method: str | None) -> bool:
+    """False when this build came from a git URL, a folder or a wheel file.
+
+    Those installs share the PyPI name but not the releases: uv reports
+    PyPI's latest as "newer" for them, and the notice would point at a
+    package that is not theirs. Unknown means registry, the old behaviour.
+    """
+    try:
+        if method == "uv":
+            reqs = _read_receipt().get("requirements", [])
+            return not any(
+                isinstance(r, dict)
+                and r.get("name") == "claude-swap"
+                and any(k in r for k in ("git", "directory", "editable", "url", "path"))
+                for r in reqs
+            )
+        if method == "pipx":
+            with (Path(sys.prefix) / "pipx_metadata.json").open(encoding="utf-8") as fh:
+                spec = json.load(fh)["main_package"]["package_or_url"]
+            return not any(c in spec for c in "/\\:@")
+    except (OSError, ValueError, KeyError, TypeError):
+        pass
+    return True
+
+
 class _Cooldown(NamedTuple):
     """An exclude-newer setting as uv spells it, and where the user set it."""
 
@@ -275,6 +300,8 @@ def check_for_update(current_version: str) -> str | None:
     """Return a notification string if a newer version exists, else None."""
     try:
         method = _detect_install_method()
+        if not _installed_from_registry(method):
+            return None
         cached_data = read_cache(CACHE_PATH, CACHE_TTL)
         if cached_data is None:
             # A cached failure. Keep it for an hour, not a day.

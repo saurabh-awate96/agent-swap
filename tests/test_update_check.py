@@ -833,3 +833,44 @@ class TestRunSelfUpgradeWindows:
         assert "uv tool upgrade claude-swap" in err
         assert "pipx upgrade claude-swap" in err
         assert "pip install --upgrade claude-swap" in err
+
+
+class TestInstalledFromSource(_UvInstall):
+    """A build installed from a git URL or a folder is not the PyPI package of
+    the same name: uv would still report PyPI's latest as "newer", and the
+    notice would send the user to a release that is not theirs."""
+
+    @pytest.mark.parametrize(
+        "source",
+        [
+            '{ name = "claude-swap", git = "https://github.com/me/claude-swap.git" }',
+            '{ name = "claude-swap", directory = "/home/me/claude-swap" }',
+            '{ name = "claude-swap", editable = "/home/me/claude-swap" }',
+            '{ name = "claude-swap", url = "https://example.com/claude_swap.whl" }',
+        ],
+    )
+    def test_no_notice_for_a_non_registry_install(self, source, tmp_path):
+        self._write_receipt(tmp_path, requirements=source)
+        with patch("claude_swap.update_check.subprocess.run") as run, \
+                patch("claude_swap.update_check.urllib.request.urlopen") as urlopen:
+            assert check_for_update("1.0.0b1") is None
+        run.assert_not_called()
+        urlopen.assert_not_called()
+
+    def test_a_registry_install_is_still_checked(self, tmp_path):
+        self._write_receipt(tmp_path)
+        out = json.dumps([{"name": "claude-swap", "latest_version": "2.0.0"}])
+        with patch(
+            "claude_swap.update_check.subprocess.run",
+            return_value=MagicMock(stdout=out, returncode=0),
+        ):
+            assert "2.0.0" in check_for_update("1.0.0")
+
+    def test_pipx_install_from_git_is_not_checked(self, tmp_path, monkeypatch):
+        monkeypatch.setattr("claude_swap.update_check._detect_install_method", lambda: "pipx")
+        (tmp_path / "pipx_metadata.json").write_text(
+            json.dumps({"main_package": {"package_or_url": "git+https://github.com/me/claude-swap.git"}})
+        )
+        with patch("claude_swap.update_check.urllib.request.urlopen") as urlopen:
+            assert check_for_update("1.0.0b1") is None
+        urlopen.assert_not_called()
