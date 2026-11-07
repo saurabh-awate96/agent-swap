@@ -1623,6 +1623,19 @@ class TestHourScale429FloorEngagesThroughStore:
         assert intervals[0] < intervals[2] < poll_policy.POST_429_MAX_INTERVAL_S
 
 
+class TestRateLimitedBackoffFloor:
+    def test_429_without_retry_after_is_floored_at_edge_backoff(self):
+        """A 429 with no usable Retry-After is a saturated budget: its failure
+        backoff floors at EDGE_BACKOFF_S, not the plain 30s curve."""
+        assert usage_store._failure_backoff_s(1, None, rate_limited=True) == (
+            usage_store.EDGE_BACKOFF_S
+        )
+        # A non-429 failure with no Retry-After keeps the plain curve.
+        assert usage_store._failure_backoff_s(1, None, rate_limited=False) == (
+            BACKOFF_BASE_S
+        )
+
+
 class TestClaimTrustBridge:
     def test_in_flight_claim_keeps_decision_trust(self, store, clock):
         # Reservation loser scenario: the entry is poll-due and past

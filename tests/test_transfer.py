@@ -12,7 +12,8 @@ from unittest.mock import patch
 
 import pytest
 
-from claude_swap.exceptions import TransferError
+from claude_swap.credentials import ActiveCredentials
+from claude_swap.exceptions import CredentialReadError, TransferError
 from claude_swap.models import Platform
 from claude_swap.oauth import credential_fingerprint
 from claude_swap.switcher import ClaudeAccountSwitcher
@@ -311,6 +312,28 @@ class TestSelectiveExport:
         with pytest.raises(TransferError, match="no accounts to export"):
             export_accounts(s, str(temp_home / "x.cswap"))
 
+    def test_export_refuses_degraded_live_read(self, temp_home: Path):
+        """A degraded live read may be a superseded token: export must refuse, not write it."""
+        s = _linux_switcher(temp_home)
+        _seed_account(s, 1, "alice@example.com", "org-a", "Org A")
+        (temp_home / ".claude.json").write_text(json.dumps({
+            "oauthAccount": {
+                "emailAddress": "alice@example.com",
+                "accountUuid": "acct-1",
+                "organizationUuid": "org-a",
+                "organizationName": "Org A",
+            }
+        }))
+        (temp_home / ".claude" / ".credentials.json").write_text(
+            json.dumps({"accessToken": "stale", "refreshToken": "stale-rt"})
+        )
+        out = temp_home / "stale.cswap"
+        degraded = ActiveCredentials(value=None, keychain_unavailable=True, degraded=True)
+        with patch.object(ClaudeAccountSwitcher, "_read_active_credentials", return_value=degraded):
+            with pytest.raises(CredentialReadError):
+                export_accounts(s, str(out))
+        assert not out.exists()
+
 
 # ---------------------------------------------------------------------------
 # Conflict / force semantics
@@ -375,6 +398,23 @@ class TestConflictPolicy:
         seq = s._get_sequence_data()
         assert seq["accounts"]["1"]["email"] == "bob@example.com"
         assert seq["accounts"]["3"]["email"] == "alice@example.com"
+
+    def test_force_import_keeps_slot_settings(self, temp_home: Path, capsys):
+        """--force rewrites the slot record but must keep the user's per-slot settings."""
+        s = _linux_switcher(temp_home)
+        _seed_account(s, 2, "alice@example.com", "org-a")
+        data = s._get_sequence_data()
+        data["accounts"]["2"]["disabled"] = True
+        data["accounts"]["2"]["priority"] = 7
+        s._write_json(s.sequence_file, data)
+        out = temp_home / "alice.cswap"
+        export_accounts(s, str(out), account="2")
+
+        import_accounts(s, str(out), force=True)
+
+        rec = s._get_sequence_data()["accounts"]["2"]
+        assert rec["disabled"] is True
+        assert rec["priority"] == 7
 
     def test_import_over_live_login_hints_force_activation(
         self, temp_home: Path, capsys

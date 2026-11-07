@@ -601,7 +601,8 @@ def _failure_backoff_s(
         BACKOFF_CAP_S,
     )
     if retry_after_s is None:
-        return computed
+        # A 429 with no usable Retry-After is still a saturated budget: same floor as the edge.
+        return max(computed, EDGE_BACKOFF_S) if rate_limited else computed
     if retry_after_s == 0:
         if not rate_limited:
             # `Retry-After: 0` on a non-429 (e.g. a Cloudflare 503 saying

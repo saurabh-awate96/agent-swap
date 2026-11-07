@@ -713,9 +713,12 @@ def _classify_usage_error(e: Exception) -> tuple[str, float | None]:
         raw = e.headers.get("Retry-After") if e.headers else None
         if raw:
             try:
-                retry_after = max(0.0, float(raw.strip()))
+                value = float(raw.strip())
             except ValueError:
-                pass
+                value = math.nan
+            # inf/nan are absent; a huge value is capped so timedelta() cannot overflow.
+            if math.isfinite(value):
+                retry_after = min(max(0.0, value), 7 * 24 * 3600.0)
         return f"http-{e.code}", retry_after
     if isinstance(e, TimeoutError):  # socket.timeout is an alias since 3.10
         return "timeout", None
