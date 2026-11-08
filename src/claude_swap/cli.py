@@ -1584,6 +1584,8 @@ def _codex_command(argv: list[str]) -> None:
     p_threshold.add_argument("target", metavar="NUM|EMAIL|ALIAS")
     p_threshold.add_argument("pct", nargs="?", type=float, help="percent used; omit with --unset")
     p_threshold.add_argument("--unset", action="store_true", help="use the global line again")
+    p_run = verb("run", "run Codex so it follows an account switch (restarts and resumes itself)")
+    p_run.add_argument("codex_args", nargs=argparse.REMAINDER, help="passed to codex, after --")
     p_status = verb("status", "show which stored account is live")
     p_status.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
@@ -1611,6 +1613,11 @@ def _codex_command(argv: list[str]) -> None:
             print(dimmed("Running Codex sessions keep their account until restarted."))
         elif args.verb == "remove":
             print(f"{accent('Removed')} Codex slot {cx.remove(args.target, yes=args.yes)}")
+        elif args.verb == "run":
+            from claude_swap.codex_run import Supervisor
+
+            rest = args.codex_args[1:] if args.codex_args[:1] == ["--"] else args.codex_args
+            sys.exit(Supervisor(cx, rest).run())
         elif args.verb == "alias":
             print(f"{accent('Alias set' if args.name else 'Alias cleared')} on Codex slot {cx.set_alias(args.target, args.name)}")
         elif args.verb in ("disable", "enable"):

@@ -161,6 +161,12 @@ class GuiServer(ThreadingHTTPServer):
         except ClaudeSwitchError as e:
             payload = {"accounts": [], "error": str(e)}
         payload["schemaVersion"] = SCHEMA_VERSION
+        # Which Codex processes will follow a switch: only `aswap codex run` ones do.
+        from claude_swap.codex import codex_running
+        from claude_swap.codex_run import supervised_count
+
+        payload["supervised"] = supervised_count(self.codex())
+        payload["running"] = codex_running()
         # So the page can offer "add current login" before the first account exists.
         payload["installed"] = shutil.which("codex") is not None
         self._codex_rows = (now, payload)

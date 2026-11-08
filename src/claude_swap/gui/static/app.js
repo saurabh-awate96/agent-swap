@@ -546,6 +546,11 @@ function renderPanel(p) {
   } else {
     const who = liveName(p);
     st.append(document.createTextNode("logged in now: "), el("b", who || "no login found"));
+    if (p === "codex" && data.running) {
+      st.append(el("div", data.supervised
+        ? "● " + data.supervised + " Codex session(s) started with `aswap codex run` follow a switch by themselves."
+        : "! Codex is running outside agent-swap: it keeps its account until restarted. Start it with `aswap codex run` and a switch reaches it at once.", data.supervised ? "on" : "warn"));
+    }
   }
   renderProgress(p);
   const tools = toolsFor(p);

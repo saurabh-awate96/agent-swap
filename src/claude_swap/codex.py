@@ -770,7 +770,19 @@ class Codex:
                 self._restore(live)
                 raise SwitchError(f"Could not save the Codex account list: {e.strerror or 'I/O error'}") from None
         self._log.info(f"Codex switched to slot {t}")
+        self.announce_switch(t)
         return t, True
+
+    def announce_switch(self, slot: int) -> None:
+        """Tell Codex sessions started with `aswap codex run` that the account changed.
+
+        They watch this file and restart onto the new login (see codex_run). Best effort:
+        the switch itself has already happened.
+        """
+        try:
+            atomic_write_text(self.root / "switched.json", json.dumps({"slot": slot, "at": _now()}))
+        except OSError:
+            self._log.warning("could not write the Codex switch marker")
 
     def remove(self, target: str, yes: bool = False) -> int:
         self._require_file_store()
