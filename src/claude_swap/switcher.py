@@ -8040,6 +8040,7 @@ class ClaudeAccountSwitcher:
             print("  - All stored account credential files")
         if session_dirs:
             print("  - All session profiles and their Keychain entries")
+        print("  - All stored Codex logins (Codex itself and its own login are not touched)")
         # The quarantine tree sits inside the backup dir, so rmtree below takes
         # it with everything else. Every file in it is the losing half of a
         # transcript collision that history migration deliberately refused to
@@ -8132,6 +8133,16 @@ class ClaudeAccountSwitcher:
                                 )
                         except Exception:
                             pass  # Ignore errors during purge
+
+        # Stored Codex logins: on macOS they are Keychain items, which deleting the
+        # backup folder below would leave behind.
+        try:
+            from claude_swap.codex import Codex
+
+            for slot in Codex().forget_all():
+                removed_items.append(f"Codex login: slot {slot}")
+        except Exception:
+            pass  # Ignore errors during purge
 
         # Session-profile keychain entries must go BEFORE the backup dir:
         # the hashed service names are derived from the dir paths and can't

@@ -1217,3 +1217,14 @@ def test_an_api_key_login_has_no_problem_to_report(env, probe):
     env.login(make_apikey_auth())
     sw.add()
     assert sw.live_problem() is None and probe.calls == []
+
+
+def test_forget_all_deletes_every_stored_login(env):
+    sw = two_accounts(env)
+    assert sorted(sw.forget_all()) == [1, 2]
+    assert sw._read_blob(1) is None and sw._read_blob(2) is None
+    assert env.live_bytes()  # Codex's own auth.json is not touched
+
+
+def test_forget_all_with_no_roster_is_a_no_op(env):
+    assert env.sw().forget_all() == []

@@ -13575,3 +13575,33 @@ class TestSalvageCopyMode:
         assert salvage.read_bytes() == config_path.read_bytes()
         assert salvage.stat().st_mode & 0o777 == 0o600
         assert not list(temp_home.glob("*.tmp"))
+
+
+class TestPurgeCodexLogins:
+    """`aswap purge` also deletes stored Codex logins: on macOS they are Keychain
+    items, which removing the backup folder does not reach."""
+
+    def test_purge_asks_codex_to_forget_its_logins_and_lists_them(self, temp_home: Path, monkeypatch, capsys):
+        monkeypatch.setattr(Platform, "detect", staticmethod(lambda: Platform.LINUX))
+        from claude_swap.paths import get_backup_root
+
+        get_backup_root().mkdir(parents=True, exist_ok=True)
+        switcher = ClaudeAccountSwitcher()
+        with patch("claude_swap.codex.Codex.forget_all", return_value=[1, 3]) as forget, \
+                patch("builtins.input", return_value="y"):
+            switcher.purge()
+        forget.assert_called_once_with()
+        out = capsys.readouterr().out
+        assert "Codex logins" in out and "Codex login: slot 1" in out and "Codex login: slot 3" in out
+
+    def test_a_codex_failure_never_stops_the_purge(self, temp_home: Path, monkeypatch):
+        monkeypatch.setattr(Platform, "detect", staticmethod(lambda: Platform.LINUX))
+        from claude_swap.paths import get_backup_root
+
+        backup = get_backup_root()
+        backup.mkdir(parents=True, exist_ok=True)
+        switcher = ClaudeAccountSwitcher()
+        with patch("claude_swap.codex.Codex.forget_all", side_effect=RuntimeError("boom")), \
+                patch("builtins.input", return_value="y"):
+            switcher.purge()
+        assert not backup.exists()
