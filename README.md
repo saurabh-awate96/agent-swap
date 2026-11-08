@@ -12,14 +12,14 @@ agent-swap keeps a copy of each login you own (Claude Code and OpenAI Codex CLI)
 ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-informational)
 ![macOS | Linux | Windows](https://img.shields.io/badge/macOS%20%7C%20Linux%20%7C%20Windows-supported-informational)
 
-<img src="assets/gui.png" width="760" alt="The agent-swap web control panel: Claude Code accounts on the left and Codex accounts on the right, each with usage bars and reset times">
+<img src="assets/gui.png" width="760" alt="The agent-swap web control panel in graphite and violet: an Active now card for Claude Code and one for Codex, each with its limits, bars and an auto-switch toggle, above one accounts table with session and weekly meters and a status pill per account">
 
 ## What you get
 
 - **Switch in one command.** `aswap switch` rotates Claude Code accounts. `--strategy best` picks the one with the most quota left.
 - **Auto-switch before a limit.** `aswap auto` moves you off an account nearing its 5-hour or weekly limit, with a cooldown and a margin so it does not flap. [The rules](docs/auto-switch.md)
 - **Codex too.** `aswap codex` switches OpenAI Codex CLI logins the same way, reading usage from Codex's own local files. [Details](docs/codex.md)
-- **Two dashboards that look alike.** A terminal dashboard (`aswap`) and a web control panel (`aswap gui`), each with usage bars, reset times and a key or button for every action.
+- **Two dashboards, one look.** A terminal dashboard (`aswap`) and a web control panel (`aswap gui`) share a palette and show every account's usage bars and reset times, with a key or button for every action.
 - **Two accounts at once.** `aswap run 2` starts Claude Code on account 2 in this terminal only; everything else stays on your default account.
 - **Careful with your logins.** Stored in the macOS Keychain or in owner-only files, written atomically, and idle accounts are never refreshed in the background. [What is stored and sent](docs/safety.md)
 
@@ -147,18 +147,27 @@ aswap gui --read-only    # a view only: no button changes anything
 aswap gui --no-open      # print the link instead (shared machines)
 ```
 
-Claude is on the left and Codex on the right, with the same parts in the same order. Select an account with the arrow keys or a click; its actions appear for that account only. Every action has a key:
+The page has two parts. Light and dark follow your system, and a small coloured dot tells Claude Code and Codex apart.
+
+- **Active now**: one card per product with the account in use and its limits, worded like Claude's own usage page ("Current session — Resets 7:40 PM — 50% used"), with a tick on each bar at the switch-away line. The card holds the Auto-switch toggle, Dry run, its settings and Best account. A login you have not saved yet is flagged there, with a Save button.
+- **Accounts**: one table for both products, with tabs for All, Claude Code and Codex. Click a row to open its details: switch, refresh, alias, switch-away line, disable or remove.
+
+**+ Add account** opens one dialog: sign in with the browser, save the login in use, or use a token or API key. Every action shows a toast and goes into an Activity list at the bottom.
+
+Every action has a key, and `?` lists them in the page:
 
 | Key | Action | Key | Action |
 |---|---|---|---|
-| `↑` `↓` | select account | `r` / `b` / `n` | rotate / best / next available |
-| `←` `→` | switch panel | `⏎` | switch to the selected account |
-| `d` | disable / enable | `a` / `t` | alias / threshold |
+| `↑` `↓` / `j` `k` | select account | `Enter` | switch to it |
+| `u` / `f` | refresh selected / all | `Esc` | close details |
+| `d` | disable / enable | `a` / `t` | alias / switch-away line |
 | `x` | remove | `+` | add account |
-| `v` | save the login in use | `g` | auto-switch start / stop |
-| `f` | refresh all accounts | `u` | refresh the selected account |
+| `r` / `b` / `n` | rotate / best / next not at its limit | `g` | auto-switch on / off |
+| `1` `2` `3` | all / Claude Code / Codex | `?` | list the keys |
 
-It listens on `127.0.0.1` only, on a random port, and the link carries a one-time token that changes on every run. Only requests from the page itself are accepted. What each check and button sends: [docs/gui.md](docs/gui.md).
+Keys do nothing while a dialog is open, in read-only mode (which also hides Refresh and Add), or while a sign-in is waiting.
+
+The panel listens on `127.0.0.1` only, on a random port, and the link carries a one-time token that changes on every run. Only requests from the page itself are accepted. What each check and button sends: [docs/gui.md](docs/gui.md).
 
 ## The terminal dashboard
 
@@ -167,9 +176,9 @@ aswap            # the dashboard (bare aswap in an interactive terminal)
 aswap watch      # opens on the live monitor
 ```
 
-<img src="assets/tui.png" width="760" alt="The agent-swap terminal dashboard: Claude Code accounts with usage bars, a Codex panel beneath them in its own blue, and the action menu">
+<img src="assets/tui.png" width="760" alt="The agent-swap terminal dashboard: a Claude Code block and a Codex block under it, each starting with its coloured dot and name, neutral usage bars, a violet menu cursor and footer keys, and the action menu">
 
-Navigate the menu with the arrow keys or `j` / `k`, press Enter to choose, and `Esc` or `←` to go back.
+The look matches the web panel: a violet accent, and bars that stay neutral until they turn amber, then red, near a limit. Navigate the menu with the arrow keys or `j` / `k`, press Enter to choose, and `Esc` or `←` to go back.
 
 | Key | Action |
 |---|---|

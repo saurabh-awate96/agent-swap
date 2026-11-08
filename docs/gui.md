@@ -9,51 +9,87 @@ aswap gui --no-open                # print the link instead of opening a browser
 aswap gui --port 8765              # a fixed port, e.g. for an SSH tunnel
 ```
 
-![The web control panel](../assets/gui.png)
+![The web control panel: an Active now card for Claude Code and one for Codex above one table of every account](../assets/gui.png)
 
 ## The page
 
-Claude Code is on the left and Codex on the right, with the same parts in the same order. On a narrow window they stack. Each panel has:
+The page has its own look: graphite neutrals and one violet accent that belong to neither product. Claude Code and Codex are told apart by a small coloured dot next to their name (a terracotta dot for Claude Code, a white one for Codex). The type is sans-serif, and light and dark follow the system. From top to bottom:
 
-- **the accounts.** The login in use is marked `▸ … ● active`. A login agent-swap has not saved yet is listed first as `[not saved]`, with a save button. Usage windows are named by their real length (`5h`, `weekly`, `30d`), and a revoked login says so.
-- **switch** (the panel's own actions): rotate, best, next available. On the selected account: switch, disable or enable, alias, threshold, remove.
-- **add:** account (opens the sign-in in your browser and saves the result), token or API key, and save login.
-- **refresh** (top right, or `f`; `u` or the account's own refresh button for one account).
-- **auto-switch:** start, stop or dry run; its last events; its settings. Claude's has the threshold, the weekly line, the strategy and keepalive. Codex's has the threshold. Each runs inside this process and stops with the dashboard.
+### Top bar
 
-Selecting an account (arrow keys or a click) shows its actions. Other accounts show only their status.
+"agent-swap", "Updated hh:mm:ss", a **Refresh** button (checks every account, key `f`), **+ Add account** (key `+`) and a **?** button that lists the keyboard shortcuts. With `--read-only` the bar shows a "read-only" chip and hides Refresh and Add.
 
-### Keys
+### Active now
 
-Every action has a key, listed in the footer.
+One card per product, Claude Code and Codex, showing the account in use (alias, email, plan chip) and its limits, written the way Claude's own usage page writes them:
 
-| Key | Action |
-|---|---|
-| `↑` `↓` or `j` `k` | select an account in the current panel |
-| `←` `→` or `h` `l` | move to the other panel |
-| `Enter` | switch to the selected account |
-| `d` | disable or enable the selected account |
-| `a` | alias |
-| `t` | threshold |
-| `x` | remove |
-| `r` | rotate to the next account |
-| `b` | switch to the best account (most quota left) |
-| `n` | switch to the next available account (skips those at their limit) |
-| `+` | add an account |
-| `v` | save the login in use |
-| `g` | start or stop auto-switch (`dry run` is a button, not a key) |
-| `f` | refresh every account of both providers |
-| `u` | refresh the selected account |
+- `Current session — Resets 7:40 PM — 50% used`
+- `Weekly · all models — Resets Wed 3:30 PM — 67% used`
+- one row per model, such as `Weekly · Fable`. Codex shows `Weekly`; its `go` plan shows a `30-day limit` and a note that the plan has no weekly limit.
 
-Keys do nothing while a dialog is open, in read-only mode, or while a browser sign-in is waiting for you.
+A thin tick on each bar marks the switch-away line. Bars are neutral, turn amber at 70% and red at 90%. Under the limits is where the reading came from: "Usage read just now" for Claude, and "Read from Codex 2m ago" or "Last seen 1h ago on this machine" for Codex.
+
+If the login in use is not saved, a strip says "Logged in as x, not saved in agent-swap yet" with a **Save** button. If OpenAI revoked a Codex login, the strip is a warning with **Sign in again** instead of Save.
+
+The card footer has:
+
+- an **Auto-switch** on/off toggle. Off, it says "Switches at 90% used when on" (90% is the default line); while running, it shows the last event. Auto-switch runs inside this process and stops with the dashboard.
+- a **Dry run** button.
+- a **⚙** button for the settings: the threshold, and for Claude also the weekly line, the strategy and keepalive.
+- **Best account**.
+
+### Accounts
+
+One table for both products, with filter tabs **All · Claude Code · Codex** (keys `1` `2` `3`). The columns are:
+
+- **Account**: an initial avatar with the product dot, the name (alias, else email), and a sub-line with the email, plan, organisation and "switches at N%".
+- **Session** and **Weekly**: a thin meter with the percentage.
+- **Status**: a pill that reads Active, Ready, Disabled, Sign in again or Check.
+- **Actions**: **Switch** (not shown on the active account) and **More**.
+
+**More**, or a click on the row, opens the account's details under the row: every limit, notes, the last login check, and the actions **Switch**, **Refresh** (`u`), **Alias** (`a`), **Switch-away line** (`t`), **Disable** or **Enable** (`d`) and **Remove** (`x`, with a confirmation). A row briefly highlights when its numbers change.
+
+### Add account
+
+**+ Add account** opens one dialog, grouped by product.
+
+- **Claude Code**: *Sign in with the browser* (an optional email pre-fills it; the login in use is saved first), *Save the login in use*, and *Use a token or API key*.
+- **Codex**: *Sign in with the browser* (the login in use is saved first, unless OpenAI revoked it), *Sign in with a code* (device login, for a machine without a browser), *Save the login in use* (disabled while the login in use is revoked), and *Use an OpenAI API key* (handed to `codex` on standard input).
+
+While a sign-in is open, a banner shows the product, the message, **Open the sign-in page** when the client printed a link, and the device code.
 
 ### Activity and status
 
-What you do lands in an activity log at the bottom, with the outcome of each check (`ok · 7d 74%`, `login revoked: sign in again`). If the server stops, the page says so in a banner and dims what it shows; it keeps trying, and a link from an earlier run is told to open the new one.
+Every action shows a short toast and goes into an **Activity** list at the bottom. It is collapsed, and its button shows the count. If the server stops, a banner says so and the page dims the last data and keeps retrying. A tab from an earlier run says to open the new link.
+
+### Keys
+
+`?` lists the keys in the page.
+
+| Key | Action |
+|---|---|
+| `↑` `↓` or `j` `k` | select an account |
+| `Enter` | switch to the selected account |
+| `Esc` | close the details |
+| `u` | refresh the selected account |
+| `f` | refresh every account |
+| `d` | disable or enable the selected account |
+| `a` | alias |
+| `t` | switch-away line |
+| `x` | remove |
+| `b` | switch to the best account (most quota left) |
+| `n` | switch to the next account not at its limit |
+| `r` | rotate to the next account |
+| `+` | add an account |
+| `g` | turn auto-switch on or off |
+| `1` `2` `3` | filter: All, Claude Code, Codex |
+| `?` | the list of keys |
+
+Keys do nothing while a dialog is open, in read-only mode, or while a sign-in is waiting.
 
 ### Refresh
 
-`f` (or the top-right button) checks every account now and lists each one's state in the activity log. For Claude that is what `aswap list` does: usage is read again where it is older than the serve window, and an expired idle token is refreshed on request. For Codex it asks the real client about each stored login without switching to it (see [codex.md](codex.md#checking-every-stored-login)).
+`f` (or the Refresh button in the top bar) checks every account now and lists each one's state in the activity log. For Claude that is what `aswap list` does: usage is read again where it is older than the serve window, and an expired idle token is refreshed on request. For Codex it asks the real client about each stored login without switching to it (see [codex.md](codex.md#checking-every-stored-login)).
 
 Background polling never refreshes an idle account's token. Only this button does, and only for a token that has already expired.
 
@@ -105,7 +141,7 @@ The Claude auto-switch started from the page is the same engine `aswap auto` run
 
 ## Logins that are not saved yet
 
-If the login Claude Code or Codex is using is not stored in agent-swap, the page lists it first, marked `[not saved]`, with its address (and plan, for Codex) only. It has a save button; in read-only mode the entry says which command to run. For Claude the address comes from `.claude.json`, and for Codex from `auth.json`. Neither reads the Keychain or the network.
+If the login Claude Code or Codex is using is not stored in agent-swap, its card says "Logged in as x, not saved in agent-swap yet" with a **Save** button. Only the address (and plan, for Codex) is shown. For Claude the address comes from `.claude.json`, and for Codex from `auth.json`. Neither reads the Keychain or the network. A Codex login that OpenAI revoked gets a warning and **Sign in again** instead, since saving it would only store a dead copy.
 
 ## In the browser
 

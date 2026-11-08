@@ -11,9 +11,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 - **`aswap codex run`**: runs Codex in the same terminal and, when the account is switched from anywhere, reopens it on the new login and resumes the same conversation. POSIX only.
 - **Live Codex usage**: for the live account only, a stale or missing reading is replaced by the current numbers from the real `codex app-server`, at most once every five minutes. `usage.codexProbe` (default on) turns it off.
 - **Codex refresh**: "check every login" asks the real client about every stored Codex login through a throwaway `CODEX_HOME`, without switching, and keeps each result (`login ok`, `revoked`, `failed`) with its time.
-- **Web control panel** (`aswap gui`): a local browser panel with Claude on the left and Codex on the right, the same parts and actions in both, a key for every action and an activity log. It is secured as described in [docs/gui.md](docs/gui.md). Actions include switch, rotate, best, next available, disable, alias, threshold, remove, save login, add account through the browser sign-in, add a token or API key, refresh (all, or one account), and start, stop or dry-run auto-switch per product.
+- **Web control panel** (`aswap gui`): a local browser panel with the same parts and actions for Claude and Codex, a key for every action and an activity log. It is secured as described in [docs/gui.md](docs/gui.md). Actions include switch, rotate, best, next available, disable, alias, threshold, remove, save login, add account through the browser sign-in, add a token or API key, refresh (all, or one account), and start, stop or dry-run auto-switch per product.
 - **Refresh one account**: `u` in the panel, or the account's refresh button, checks that account only.
-- **Terminal dashboard shows Codex**: a CODEX panel under the Claude one, and a *Codex accounts…* menu entry (key `c`) with switch, rotate, best pick, sign in to another account, save current login, check every login, disable/enable and remove. Codex uses its own blue, Claude terracotta. [docs/tui.md](docs/tui.md)
+- **Terminal dashboard shows Codex**: a Codex block under the Claude Code one, and a *Codex accounts…* menu entry (key `c`) with switch, rotate, best pick, sign in to another account, save current login, check every login, disable/enable and remove. [docs/tui.md](docs/tui.md)
 - **`aswap setup`**: a guided first-run screen that checks Claude Code and Codex, shows how many logins are saved, and walks through saving the login in use, adding accounts, saving a Codex login, choosing the auto-switch line and opening a dashboard.
 - **`install.sh` and `install.ps1`**: one-line install (uv, else pipx, else fetch uv), PATH setup, then `aswap setup`. `install.sh` replaces an old `claude-swap` install. The Windows script is untested.
 - **`aswap onboard`**: adds several Claude accounts in one sitting, one `claude auth login` each.
@@ -28,13 +28,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 - **Claude and Codex are equal in the web panel**: the same actions under `/api/<provider>/<action>`, pinned by a test.
 - **Idle accounts are no longer refreshed in the background.** A lapsed idle token shows as "token expired" and is refreshed on request (`aswap list`, `aswap switch`, the panel's refresh), or when auto-switch must leave the active account and no candidate has readable usage.
 - The web panel polls without refreshing idle accounts' tokens, like the terminal dashboard.
-- Web panel usage windows are named by their real length: `5h`, `weekly`, `30d` (Codex's `go` plan has one 30-day window and no weekly one).
+- Web panel usage windows are named by their real length (Codex's `go` plan has one 30-day window and no weekly one).
 - The "newer version on PyPI" notice is skipped for installs from a git URL or a folder, since PyPI's release is not theirs.
 - The README leads with the one-line install and a screenshot, and links its own docs.
+- **New look for the web control panel and the terminal dashboard:** a graphite-and-violet palette that belongs to neither product, with a coloured dot (Claude terracotta, Codex white) to tell them apart. The panel is now an "Active now" card per product above one Accounts table, with one Add account dialog and an Activity list; the keys `1` `2` `3` and `?` are new, and `←` `→` and `v` are gone. The `aswap` command-line accent is violet, not terracotta. [docs/gui.md](docs/gui.md), [docs/tui.md](docs/tui.md)
 
 ### Fixed
 
-- Web panel: a usage row is a grid, so a long reset text wraps in its own column instead of breaking the row. A per-model window says `weekly · resets …`. A Codex plan with no weekly window says so instead of showing no weekly row.
+- Web panel: a Codex plan with no weekly window says so instead of showing no weekly row.
 - Codex usage: the newest reading is found even when a long session ends in one huge line (the scan used to read only the last 256 KB and could fall back to an older session's number). A window that reset since the last reading shows as unknown, not 0%.
 - A revoked Codex login is reported as revoked instead of silently showing stale numbers. The terminal dashboard and the web panel refuse to save a revoked login, which would only store a dead copy, and say to sign in again.
 - A rotated refresh token survives a malformed refresh response. A non-numeric `expires_in` falls back to an hour.

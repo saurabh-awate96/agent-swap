@@ -58,7 +58,7 @@ The web panel and the terminal dashboard say how many Codex sessions are supervi
 
 Switching makes no request to OpenAI. Codex records rate-limit snapshots in its own session logs, `sessions/**/rollout-*.jsonl`, as `token_count` events: `primary` is the 5-hour window and `secondary` the weekly one. `aswap codex list` reads the newest snapshot, so an account you have not used lately shows the numbers from its last session. A window whose reset time has passed shows as `reset`.
 
-Windows are named by their real length, not assumed. Codex's `go` plan has one 30-day window and no weekly one; the panels show `30d` and say that the plan has no weekly limit.
+Windows are named by their real length, not assumed. Codex's `go` plan has one 30-day window and no weekly one; the panels name that window by its length and say that the plan has no weekly limit.
 
 `switch --strategy best` picks the account with the most quota left by those numbers. `next-available` rotates and skips accounts whose last reading is at their limit.
 
@@ -88,13 +88,13 @@ Each result is kept on the slot (`login ok`, `revoked`, `unauthorized`, `failed`
 
 ## Revoked logins
 
-If OpenAI has revoked a login, its stored copy can no longer be used, and the panels say so: `login revoked: sign in again`, with the sign-in entry to use. Saving a revoked login would only store a dead copy, so the web panel and the terminal dashboard refuse to save one (their "save current login" action) and say to sign in again. Signing in to another account does not save a revoked login first.
+If OpenAI has revoked a login, its stored copy can no longer be used, and the panels say so: `login revoked: sign in again`, with the sign-in entry to use. Saving a revoked login would only store a dead copy, so the web panel (its **Save** and *Save the login in use*, which is disabled for a revoked login) and the terminal dashboard (*Save current login*) refuse to save one and say to sign in again. Signing in to another account does not save a revoked login first.
 
 The command line `aswap codex add` does not run this check on the current `main` branch; it stores whatever login `auth.json` holds.
 
 ## Signing in to another account
 
-- **Web panel:** `add → account` opens `codex login` in your browser and saves the result. "By code" uses `codex login --device-auth`, and the page shows the link and the device code if no browser window opens. An API key is `codex login --with-api-key` with the key on standard input.
+- **Web panel:** **+ Add account** → Codex → *Sign in with the browser* opens `codex login` in your browser and saves the result. *Sign in with a code* uses `codex login --device-auth`, and the sign-in banner shows the link and the device code if no browser window opens. *Use an OpenAI API key* is `codex login --with-api-key` with the key on standard input. A revoked login's card offers **Sign in again**.
 - **Terminal dashboard:** "Sign in to another account" leaves the dashboard for `codex login` in the same terminal, then comes back.
 - **Command line:** run `aswap codex add` for the login in use, then `codex login` yourself, then `aswap codex add` again.
 

@@ -10,13 +10,17 @@ aswap watch      # opens straight on the live monitor
 
 Bare `aswap` opens the dashboard only when both stdin and stdout are a terminal. In scripts and pipes it still prints usage, so `aswap` never blocks a cron job.
 
-![The terminal dashboard](../assets/tui.png)
+![The terminal dashboard: a Claude Code block and a Codex block under it, each starting with its coloured dot and name, above the action menu](../assets/tui.png)
 
 ## The dashboard
 
-The top of the screen is the monitor: the account in use as a full card, the others as one-line minis, each with its 5-hour and 7-day usage bars and reset times. Bars are amber from 70% and red from 90%, and a tick marks the switch-away line. A row whose stored measurement just advanced is highlighted briefly.
+The top of the screen is the monitor: the account in use as a full card, the others as one-line minis, each with its 5-hour and 7-day usage bars and reset times. Bars are neutral, amber from 70% and red from 90%, and a tick marks the switch-away line. A row whose stored measurement just advanced is highlighted briefly.
 
 Below it is the action menu. The arrow keys (or `j` and `k`) move through the menu, Enter chooses, and `Esc` or `←` goes back one level. Menus nest, and the breadcrumb sits above the list.
+
+### Look
+
+The dashboard uses the same palette as the [web control panel](gui.md): graphite neutrals and one violet accent, which marks the menu cursor, the keys in the footer and the active account. Each product's block starts with its coloured dot and name, `● Claude Code` and then `● Codex`: the dot is terracotta for Claude Code and white for Codex. The terminal window's title is `agent-swap`. The output of the `aswap` commands uses the same violet accent.
 
 ### Menu
 
@@ -36,7 +40,7 @@ Below it is the action menu. The arrow keys (or `j` and `k`) move through the me
 
 ### Codex menu
 
-The Codex entry sits right after *Add account…*. Its panel, a **CODEX** heading and the live account card under the Claude panel, uses Codex's own blue (terracotta is Claude's), so you can tell the products apart at a glance. Codex's data is polled on its own slower clock, about every 30 seconds, because the live reading is cached for five minutes.
+The Codex entry sits right after *Add account…*. Its block, headed `● Codex` with the live account card, sits under the `● Claude Code` block, and the dots tell the products apart at a glance. Codex's data is polled on its own slower clock, about every 30 seconds, because the live reading is cached for five minutes.
 
 | Entry | What it does |
 |---|---|
