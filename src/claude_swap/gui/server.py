@@ -123,7 +123,7 @@ class GuiServer(ThreadingHTTPServer):
         try:
             # Reading must not write: persist only when changes are allowed.
             cx = self.codex()
-            payload = {"accounts": cx.rows(persist=self.write)}
+            payload = {"accounts": cx.rows(persist=self.write, probe=True)}
             live = cx.status()
             payload["unsaved"] = (
                 {k: live[k] for k in ("email", "plan", "authMode")}

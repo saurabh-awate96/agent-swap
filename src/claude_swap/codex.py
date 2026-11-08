@@ -1,7 +1,8 @@
 """OpenAI Codex CLI account switching (``cswap codex ...``).
 
-Local files only: no OpenAI request of any kind, no token refresh, and never
-``codex login`` / ``codex logout`` (logout revokes the login server-side).
+Switching is local files only: no OpenAI request, no token refresh, and never
+``codex login`` / ``codex logout`` (logout revokes the login server-side). The one
+network use is the optional live-usage read below, made by Codex itself.
 ``$CODEX_HOME/auth.json`` is replaced only once its current bytes are held in
 a slot, and a slot's blob is the exact bytes of that file, never re-serialised.
 No token value is ever logged, printed or put in an exception message.
@@ -14,8 +15,11 @@ import contextlib
 import hashlib
 import json
 import os
+import queue
+import shutil
 import subprocess
 import sys
+import threading
 import time
 import tomllib
 from dataclasses import dataclass
@@ -35,6 +39,7 @@ from claude_swap.fsutil import atomic_write_bytes, atomic_write_text
 from claude_swap.locking import FileLock
 from claude_swap.logging_config import setup_logging
 from claude_swap.models import Platform
+from claude_swap.settings import load_usage_settings
 
 LOCK_TIMEOUT = 10.0
 # Codex refreshes (rotating the single-use refresh token) when the access token
@@ -183,6 +188,129 @@ def _last_snapshot(fh, size: int) -> dict | None:
                 return snap
         pos = start
     return None
+
+
+# -- the live account's current numbers, from the real client -------------------
+#
+# Rollouts only record what Codex wrote on THIS machine, so an account idle for a
+# while shows a stale reading and, once its window has reset, none. For the live
+# account only, `codex app-server` (OpenAI's own client, run with your own login,
+# so nothing here impersonates it) answers `account/rateLimits/read` with the
+# current figures. It is asked only when the local reading is stale, at most
+# once per PROBE_STALE_S, and never switches or rewrites a login by itself.
+
+PROBE_STALE_S = 300
+PROBE_BUDGET_S = 15.0
+_PROBE: dict = {}  # {"identity", "at" (monotonic), "snap"}: last attempt, shared by every Codex()
+
+
+def _read_rate_limits(budget: float | None = None) -> dict | None:
+    """The ``result`` of ``account/rateLimits/read`` from ``codex app-server``, or None.
+
+    None on any failure (no codex, a crash, an error reply, no answer in time).
+    """
+    binary = shutil.which("codex")
+    if binary is None:
+        return None
+    from claude_swap import __version__
+
+    deadline = time.monotonic() + (PROBE_BUDGET_S if budget is None else budget)
+    try:
+        proc = subprocess.Popen(
+            [binary, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
+        )
+    except OSError:
+        return None
+    lines: queue.Queue = queue.Queue()
+
+    def pump() -> None:
+        for line in proc.stdout:
+            lines.put(line)
+        lines.put(None)  # the client closed its output
+
+    threading.Thread(target=pump, daemon=True).start()
+
+    def send(obj: dict) -> None:
+        proc.stdin.write(json.dumps(obj) + "\n")
+        proc.stdin.flush()
+
+    def reply(want: int) -> dict | None:
+        while True:
+            try:
+                line = lines.get(timeout=max(0.0, deadline - time.monotonic()))
+            except queue.Empty:
+                return None
+            if line is None:
+                return None
+            try:
+                msg = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(msg, dict) and msg.get("id") == want and ("result" in msg or "error" in msg):
+                return msg
+
+    try:
+        send({"id": 1, "method": "initialize",
+              "params": {"clientInfo": {"name": "agent-swap", "version": __version__}}})
+        if reply(1) is None:
+            return None
+        send({"method": "initialized"})
+        send({"id": 2, "method": "account/rateLimits/read"})
+        result = (reply(2) or {}).get("result")
+        return result if isinstance(result, dict) else None
+    except OSError:  # a broken pipe: the client went away
+        return None
+    finally:
+        with contextlib.suppress(OSError):
+            proc.stdin.close()
+        proc.terminate()
+        try:
+            proc.wait(5)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+
+
+def _usage_from_rate_limits(result: dict | None) -> dict | None:
+    """A rollout-shaped usage dict (plus ``live``) from an ``account/rateLimits/read`` result."""
+    try:
+        limits = (result.get("rateLimitsByLimitId") or {}).get("codex") or result["rateLimits"]
+        if limits.get("limitId") not in (None, "codex"):
+            return None
+        windows = {
+            name: _window({
+                "used_percent": limits[name]["usedPercent"],
+                "window_minutes": limits[name]["windowDurationMins"],
+                "resets_at": limits[name]["resetsAt"],
+            }) if limits.get(name) else None
+            for name in ("primary", "secondary")
+        }
+    except (AttributeError, KeyError, TypeError):
+        return None
+    if not any(windows.values()):
+        return None
+    seen = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
+    return {**windows, "seenAt": seen, "live": True}
+
+
+def _needs_probe(usage: dict | None, now: float) -> bool:
+    """Whether a stored reading is too old, or has a window that reset since."""
+    if not usage:
+        return True
+    seen = _when(usage["seenAt"])
+    if seen is None or now - seen.timestamp() > PROBE_STALE_S:
+        return True
+    return any(w and w["resets_at"] <= now for w in (usage.get("primary"), usage.get("secondary")))
+
+
+def _probe_snapshot(identity) -> dict | None:
+    """The live reading, asked for at most once per PROBE_STALE_S (a failure counts too)."""
+    now = time.monotonic()
+    if _PROBE.get("identity") == identity and now - _PROBE["at"] < PROBE_STALE_S:
+        return _PROBE["snap"]
+    snap = _usage_from_rate_limits(_read_rate_limits())
+    _PROBE.update(identity=identity, at=now, snap=snap)
+    return snap
 
 
 def load_percent(usage: dict | None, now: float) -> float | None:
@@ -434,9 +562,37 @@ class Codex:
                 changed = True
         return changed
 
-    def rows(self, persist: bool = True) -> list[dict]:
+    def _live_slot(self, data: dict) -> tuple[int | None, Auth | None]:
+        live = self._read_live()
+        try:
+            auth = parse_auth(live) if live else None
+        except SwitchError:
+            return None, None
+        if auth is None or auth.mode == "apikey":
+            return None, None
+        return self._match(data, auth), auth
+
+    def _apply_probe(self, data: dict, persist: bool) -> None:
+        """Replace the live account's stale reading with the real client's, when it answers."""
+        n, auth = self._live_slot(data)
+        if n is None or not _needs_probe(data["accounts"][str(n)].get("usage"), time.time()):
+            return
+        snap = _probe_snapshot(auth.identity)
+        if snap is None or self._live_slot(data)[0] != n:
+            return  # no answer, or the login changed while asking: the reading is not this account's
+        data["accounts"][str(n)]["usage"] = snap
+        if persist:
+            with self._locked(codex_lock=False):
+                fresh = self._load()
+                held = fresh["accounts"].get(str(n), {}).get("usage")
+                if str(n) in fresh["accounts"] and (not held or snap["seenAt"] > held["seenAt"]):
+                    fresh["accounts"][str(n)]["usage"] = snap
+                    self._save(fresh)
+
+    def rows(self, persist: bool = True, probe: bool = False) -> list[dict]:
         """One dict per stored account. ``persist=False`` writes nothing (the
-        read-only dashboard): usage is folded in for this call only."""
+        read-only dashboard): usage is folded in for this call only. ``probe``
+        lets a stale live account be read through the real client (see above)."""
         self._require_file_store()
         data = self._load()
         if data["accounts"]:
@@ -444,6 +600,8 @@ class Codex:
                 data = self._load()
                 if self._refresh_usage(data) and persist:
                     self._save(data)
+            if probe and load_usage_settings(paths.get_backup_root()).codex_probe:
+                self._apply_probe(data, persist)
         active = data["activeAccountNumber"]
         return [
             {

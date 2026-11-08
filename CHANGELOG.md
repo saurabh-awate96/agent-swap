@@ -19,6 +19,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 - **`autoswitch.keepalive`** (off by default): one tiny real `claude` request per idle account, at most every 8 hours, so its login and usage stay warm without cswap calling the token endpoint.
 - [docs/safety.md](docs/safety.md), [SECURITY.md](SECURITY.md), this changelog.
 
+- **Live Codex usage.** For the live account only, a stale or missing 5h/weekly reading (an idle account, or a window that reset since) is replaced by the current numbers from the real `codex app-server`, at most once every five minutes. Setting `usage.codexProbe` (default on) turns it off. The dashboard note says "read from Codex".
 - The web dashboard shows the login you are using right now when it is not saved yet (Claude and Codex), instead of looking empty.
 
 ### Changed

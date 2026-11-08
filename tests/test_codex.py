@@ -8,8 +8,12 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
+import shutil
+import stat
 import sys
+import textwrap
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -782,3 +786,191 @@ def test_cli_rejects_a_target_with_a_strategy(env, monkeypatch):
     with pytest.raises(SystemExit) as e:
         cli.main()
     assert e.value.code == 2
+
+
+# --- live reading through the real client ------------------------------------
+#
+# A rollout only holds what Codex wrote on THIS machine, so an account idle for a
+# while shows a stale (or, after a reset, no) 5h figure. The live account's
+# current numbers come from `codex app-server`, OpenAI's own client.
+
+
+def rate_limits(primary=6, secondary=36, limit="codex", primary_in=3600, secondary_in=86400):
+    now = int(NOW.timestamp())
+    snap = {
+        "limitId": limit,
+        "primary": {"usedPercent": primary, "windowDurationMins": 300, "resetsAt": now + primary_in},
+        "secondary": {"usedPercent": secondary, "windowDurationMins": 10080, "resetsAt": now + secondary_in},
+    }
+    return {"rateLimits": snap, "rateLimitsByLimitId": {limit: snap}}
+
+
+def iso_now(minutes_ago=0):
+    t = datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
+    return t.strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+@pytest.fixture
+def probe(monkeypatch):
+    """Replace the app-server call; record how often it runs. Fresh state each test."""
+    calls = []
+    answer = {"value": rate_limits()}
+
+    def fake(budget=None):
+        calls.append(1)
+        return answer["value"]
+
+    codex._PROBE.clear()
+    monkeypatch.setattr(codex, "_read_rate_limits", fake)
+    fake.calls, fake.answer = calls, answer
+    yield fake
+    codex._PROBE.clear()
+
+
+def test_rate_limits_map_to_the_rollout_usage_shape():
+    u = codex._usage_from_rate_limits(rate_limits())
+    assert u["primary"]["used_percent"] == 6 and u["primary"]["window_minutes"] == 300
+    assert u["secondary"]["used_percent"] == 36 and u["secondary"]["window_minutes"] == 10080
+    assert u["live"] is True and u["seenAt"].endswith("Z")
+
+
+@pytest.mark.parametrize("bad", [None, {}, {"rateLimits": None}, rate_limits(limit="premium"),
+                                 {"rateLimits": {"limitId": "codex", "primary": None, "secondary": None}}])
+def test_an_unusable_answer_yields_no_usage(bad):
+    assert codex._usage_from_rate_limits(bad) is None
+
+
+def test_a_stale_live_account_is_read_through_the_real_client(env, probe):
+    sw = two_accounts(env)  # live is slot 2, no rollout at all
+    rows = {r["slot"]: r for r in sw.rows(persist=False, probe=True)}
+    assert rows[2]["usage"]["primary"]["used_percent"] == 6
+    assert rows[2]["usage"]["secondary"]["used_percent"] == 36
+    assert rows[1]["usage"] is None  # only the live account can be read
+    assert json.loads(sw.seq.read_text())["accounts"]["2"].get("usage") is None  # read-only wrote nothing
+
+
+def test_persisting_keeps_the_live_reading(env, probe):
+    sw = two_accounts(env)
+    sw.rows(persist=True, probe=True)
+    assert json.loads(sw.seq.read_text())["accounts"]["2"]["usage"]["primary"]["used_percent"] == 6
+
+
+def test_a_fresh_local_reading_is_trusted_without_asking(env, probe):
+    sw = two_accounts(env)
+    rollout(env, "b", ("user-B", "acct-B"), [(iso_now(1), limits(window(30), window(25, 10080)))])
+    rows = {r["slot"]: r for r in sw.rows(persist=False, probe=True)}
+    assert rows[2]["usage"]["primary"]["used_percent"] == 30
+    assert probe.calls == []
+
+
+def test_a_window_that_reset_since_the_reading_is_asked_again(env, probe):
+    sw = two_accounts(env)
+    rollout(env, "b", ("user-B", "acct-B"), [(iso_now(1), limits(window(98, resets_in=-60), window(25, 10080)))])
+    rows = {r["slot"]: r for r in sw.rows(persist=False, probe=True)}
+    assert rows[2]["usage"]["primary"]["used_percent"] == 6
+    assert len(probe.calls) == 1
+
+
+def test_probing_is_off_unless_asked_for(env, probe):
+    sw = two_accounts(env)
+    assert sw.rows()[1]["usage"] is None
+    assert probe.calls == []
+
+
+def test_a_failed_read_falls_back_to_the_local_reading(env, probe):
+    sw = two_accounts(env)
+    rollout(env, "b", ("user-B", "acct-B"), [(iso_now(60), limits(window(30), window(25, 10080)))])
+    probe.answer["value"] = None
+    rows = {r["slot"]: r for r in sw.rows(persist=False, probe=True)}
+    assert rows[2]["usage"]["primary"]["used_percent"] == 30
+
+
+def test_the_real_client_is_asked_at_most_once_per_window_of_time(env, probe):
+    sw = two_accounts(env)
+    first = sw.rows(persist=False, probe=True)
+    second = sw.rows(persist=False, probe=True)  # read-only: nothing stored, still served from memory
+    assert len(probe.calls) == 1
+    assert second[1]["usage"]["primary"]["used_percent"] == 6 == first[1]["usage"]["primary"]["used_percent"]
+
+
+def test_a_failed_read_is_not_retried_in_a_loop(env, probe):
+    sw = two_accounts(env)
+    probe.answer["value"] = None
+    sw.rows(persist=False, probe=True)
+    sw.rows(persist=False, probe=True)
+    assert len(probe.calls) == 1
+
+
+def test_the_setting_turns_probing_off(env, probe):
+    from claude_swap import paths
+    from claude_swap.settings import set_setting
+
+    set_setting(paths.get_backup_root(), "usage.codexProbe", "false")
+    sw = two_accounts(env)
+    assert sw.rows(persist=False, probe=True)[1]["usage"] is None
+    assert probe.calls == []
+
+
+def test_a_reading_is_dropped_if_the_login_changed_while_asking(env, monkeypatch):
+    sw = two_accounts(env)  # live B
+    codex._PROBE.clear()
+
+    def switching(budget=None):
+        env.login(make_auth(**A))  # the user switched to A mid-read
+        return rate_limits()
+
+    monkeypatch.setattr(codex, "_read_rate_limits", switching)
+    rows = {r["slot"]: r for r in sw.rows(persist=False, probe=True)}
+    assert rows[1]["usage"] is None and rows[2]["usage"] is None
+    codex._PROBE.clear()
+
+
+REAL_READ_RATE_LIMITS = codex._read_rate_limits  # conftest stubs the module attribute for every test
+
+
+FAKE_APP_SERVER = """#!{python}
+import json, sys, time
+mode = {mode!r}
+for line in sys.stdin:
+    msg = json.loads(line)
+    if mode == "hang":
+        time.sleep(60)
+    if msg.get("method") == "initialize":
+        print(json.dumps({{"id": msg["id"], "result": {{}}}}), flush=True)
+    elif msg.get("method") == "account/rateLimits/read":
+        if mode == "crash":
+            sys.exit(3)
+        print(json.dumps({{"id": msg["id"], "result": {result!r}}}), flush=True)
+"""
+
+
+@pytest.fixture
+def fake_codex(tmp_path, monkeypatch):
+    def install(mode="ok"):
+        d = tmp_path / "bin"
+        d.mkdir(exist_ok=True)
+        script = d / "codex"
+        script.write_text(FAKE_APP_SERVER.format(python=sys.executable, mode=mode, result=rate_limits()))
+        script.chmod(script.stat().st_mode | stat.S_IXUSR)
+        monkeypatch.setenv("PATH", f"{d}{os.pathsep}{os.environ['PATH']}")
+    return install
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the fake client is a POSIX script")
+class TestReadRateLimits:
+    def test_the_answer_comes_from_the_app_server(self, fake_codex):
+        fake_codex("ok")
+        out = REAL_READ_RATE_LIMITS(budget=10)
+        assert out["rateLimits"]["primary"]["usedPercent"] == 6
+
+    def test_a_silent_client_is_given_up_on(self, fake_codex):
+        fake_codex("hang")
+        assert REAL_READ_RATE_LIMITS(budget=1) is None
+
+    def test_a_client_that_dies_yields_nothing(self, fake_codex):
+        fake_codex("crash")
+        assert REAL_READ_RATE_LIMITS(budget=5) is None
+
+    def test_no_codex_installed_yields_nothing(self, monkeypatch):
+        monkeypatch.setattr(shutil, "which", lambda name: None)
+        assert REAL_READ_RATE_LIMITS(budget=1) is None

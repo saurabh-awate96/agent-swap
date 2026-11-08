@@ -1535,7 +1535,8 @@ def _codex_command(argv: list[str]) -> None:
     """Handle `cswap codex add|list|switch|remove|status`.
 
     Switches the OpenAI Codex CLI login (``$CODEX_HOME/auth.json``). Separate
-    from the Claude accounts: its own roster, and it never touches the network.
+    from the Claude accounts: its own roster. Switching never touches the network;
+    ``list`` may ask Codex itself for the live account's current usage.
     """
     from claude_swap import codex
 
@@ -1580,7 +1581,7 @@ def _codex_command(argv: list[str]) -> None:
             slot, created = cx.add(slot=args.slot, alias=args.alias, yes=args.yes)
             print(f"{accent('Added' if created else 'Refreshed')} Codex slot {slot}")
         elif args.verb == "list":
-            rows = cx.rows()
+            rows = cx.rows(probe=True)
             if args.json:
                 print(json.dumps(rows, indent=2))
             elif not rows:
