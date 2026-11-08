@@ -562,12 +562,15 @@ class _Handler(BaseHTTPRequestHandler):
         is older than the serve window, an expired idle token refreshed on request). Codex: the
         real client asked about each stored login, without switching to it.
         """
-        if body:
-            self._fail(400, "BadRequest", "unexpected field")
+        number = self._number(body, {"number"}) if body else None
         accounts = []
         if self._provider == "claude":
-            payload = self.server.switcher.list_accounts(json_output=True, refresh_idle=True)
-            for a in payload["accounts"]:
+            payload = self.server.switcher.list_accounts(
+                json_output=True, refresh_idle=True, fetch={number} if number else None)
+            rows = [a for a in payload["accounts"] if number is None or str(a["number"]) == number]
+            if number and not rows:
+                self._fail(400, "BadRequest", f"no Claude account {number}")
+            for a in rows:
                 u, parts = a.get("usage") or {}, []
                 for key, name in (("fiveHour", "5h"), ("sevenDay", "7d")):
                     if u.get(key):
@@ -579,7 +582,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "status": _CLAUDE_STATUS.get(status, status), "detail": " · ".join(parts),
                 })
         else:
-            for r in self.server.codex().check_all():
+            for r in self.server.codex().check_all(only=int(number) if number else None):
                 u, parts = r["usage"] or {}, []
                 for key in ("primary", "secondary"):
                     w = u.get(key)
@@ -594,9 +597,10 @@ class _Handler(BaseHTTPRequestHandler):
             self.server._codex_rows = None
         bad = sum(1 for a in accounts if not a["ok"])
         noun = "Claude" if self._provider == "claude" else "Codex"
+        what = f"{noun} account {number}" if number else f"{len(accounts)} {noun} account(s)"
         self._json(200, {
             "schemaVersion": SCHEMA_VERSION, "ok": True, "accounts": accounts,
-            "message": f"Checked {len(accounts)} {noun} account(s): " + ("all fine." if not bad else f"{bad} need attention."),
+            "message": f"Checked {what}: " + ("all fine." if not bad else f"{bad} need attention." if not number else "needs attention."),
         })
 
     def _runner(self):

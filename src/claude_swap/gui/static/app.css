@@ -71,6 +71,9 @@ button:disabled:hover { color: inherit; border-color: var(--track); }
 main { padding: 6px 0 0; }
 .acct { margin: 2px 0 6px; padding: 4px 6px 4px 10px; border-left: 3px solid transparent; cursor: pointer; border-radius: 0 2px 2px 0; }
 .acct:hover { background: var(--surface); }
+.acct.flash { animation: flash 1.4s ease-out; }
+@keyframes flash { from { background: var(--panel); outline: 1px solid var(--accent); } to { background: transparent; outline: 1px solid transparent; } }
+@media (prefers-reduced-motion: reduce) { .acct.flash { animation: none; background: var(--panel); } }
 .acct.sel { background: var(--surface); border-left-color: var(--track); }
 .panel.focus .acct.sel { border-left-color: var(--accent); }
 .acct.active .head .num { color: var(--accent); }
@@ -78,8 +81,9 @@ main { padding: 6px 0 0; }
 .num { font-weight: bold; margin-right: 12px; white-space: pre; }
 .alias { color: var(--accent); font-weight: bold; }
 .badge { margin-left: 12px; color: var(--muted); }
-.row { display: flex; flex-wrap: wrap; gap: 0 12px; padding-left: 28px; }
-.row .label { color: var(--muted); min-width: 5ch; }
+.row { display: grid; grid-template-columns: 7ch max-content 4ch minmax(0, 1fr); gap: 0 12px; padding-left: 28px; align-items: baseline; }
+.row .label { color: var(--muted); }
+.row > .muted:last-child { overflow-wrap: anywhere; }
 .bar { white-space: pre; }
 .pct { min-width: 4ch; text-align: right; }
 .dim { opacity: 0.6; }

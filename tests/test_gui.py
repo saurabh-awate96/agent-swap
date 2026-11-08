@@ -29,7 +29,7 @@ class StubSwitcher:
         self.fail_with: Exception | None = None
         self.block: threading.Event | None = None
 
-    def list_accounts(self, json_output=False, refresh_idle=True):
+    def list_accounts(self, json_output=False, refresh_idle=True, fetch=None):
         self.calls.append(("list",))
         self.list_refresh_idle = refresh_idle
         return {
@@ -98,8 +98,8 @@ class StubCodex:
         self.last_strategy = strategy
         return (int(target) if target else 2), True
 
-    def check_all(self):
-        self.calls.append(("check_all",))
+    def check_all(self, only=None):
+        self.calls.append(("check_all", only))
         return [{"slot": 1, "label": "main", "status": "ok",
                  "usage": {"primary": {"used_percent": 11.0, "window_minutes": 300, "resets_at": 1}, "secondary": None}},
                 {"slot": 2, "label": "work", "status": "revoked", "usage": None}]

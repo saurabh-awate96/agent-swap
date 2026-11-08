@@ -262,14 +262,14 @@ Run `aswap` on its own (or `aswap tui`) for the full-screen dashboard: live usag
 
 `aswap gui` (or `aswap gui`) opens a control panel in your browser: **Claude Code on the left, Codex on the right, the same parts in the same order**, in the terminal dashboard's look (usage bars, reset countdowns, your switch line).
 
-Select an account with the arrow keys or a click: only the selected one shows its buttons, and every action also has a key, listed in the footer (`⏎` switch, `d` disable, `a` alias, `t` threshold, `x` remove, `r` rotate, `b` best, `n` next, `+` add, `v` save login, `g` auto-switch, `f` refresh, `←→` between the panels). What you do lands in an activity log at the bottom; if the dashboard stops, the page says so and marks what it shows as old.
+Select an account with the arrow keys or a click: only the selected one shows its buttons, and every action also has a key, listed in the footer (`⏎` switch, `d` disable, `a` alias, `t` threshold, `x` remove, `r` rotate, `b` best, `n` next, `+` add, `v` save login, `g` auto-switch, `f` refresh all, `u` refresh the selected account, `←→` between the panels). What you do lands in an activity log at the bottom; if the dashboard stops, the page says so and marks what it shows as old.
 
 Each panel has:
 
 - **the accounts**, the login in use marked `▸ … ● active`. A login agent-swap has not saved is listed first as `[not saved]` with a save button. Usage windows are named by their real length (`5h`, `7d`, `30d`), and a login OpenAI has revoked says so.
 - **switch**: rotate, best, next available (skips accounts at their limit), and on the selected account switch, disable/enable, alias, threshold, remove.
 - **add**: account (opens the sign-in in your browser and saves the result; the login in use is saved first, and if no window opens the panel shows the link and, for Codex **by code**, the device code), token or API key, and save login.
-- **refresh** (top right, or `f`): checks every account of both providers now and lists each one's state in the activity log (`ok · 7d 74%`, `login revoked: sign in again`), and Codex cards keep a `login ok · checked 3m ago` line. For Codex this asks the real client about each stored login without switching to it. [Details](docs/codex.md#checking-every-stored-login)
+- **refresh** (top right, or `f`; `u` or the account's own `refresh` button for just one): checks every account of both providers now and lists each one's state in the activity log (`ok · 7d 74%`, `login revoked: sign in again`), and Codex cards keep a `login ok · checked 3m ago` line. For Codex this asks the real client about each stored login without switching to it. [Details](docs/codex.md#checking-every-stored-login)
 - **auto-switch**: start, stop or dry-run it, last events, and settings. Claude's has threshold, weekly line, strategy and keepalive; Codex's shares the threshold. Each runs inside the dashboard and stops with it; run auto-switch in one place only.
 
 ```bash
