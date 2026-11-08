@@ -95,7 +95,11 @@ class StubCodex:
 
     def switch(self, target=None, strategy=None, force=False):
         self.calls.append(("switch", target))
-        return int(target), True
+        return (int(target) if target else 2), True
+
+    def remove(self, target, yes=False):
+        self.calls.append(("remove", target, yes))
+        return int(target)
 
     def add(self, slot=None, alias=None, yes=False):
         self.calls.append(("add",))

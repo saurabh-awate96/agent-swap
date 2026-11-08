@@ -12,14 +12,14 @@ Switch between your accounts without logging out, let it switch for you before y
 ![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-informational)
 ![macOS | Linux | Windows](https://img.shields.io/badge/macOS%20%7C%20Linux%20%7C%20Windows-supported-informational)
 
-<img src="assets/gui.png" width="760" alt="cswap web dashboard: Claude accounts with 5h and 7d usage bars and reset times, Codex accounts underneath, in the same layout as the terminal dashboard">
+<img src="assets/gui.png" width="760" alt="agent-swap web control panel: Claude accounts with 5h and 7d usage bars and reset times, Codex accounts underneath, in the same layout as the terminal dashboard">
 
 ## What you get
 
 - **Switch** Claude Code accounts in one command, with no logout. Pick by number, email or alias, or let `--strategy best` choose the one with the most quota left.
 - **Auto-switch** moves you to the next account before the active one hits its 5-hour or weekly limit, with a cooldown so it never flaps. [How the rules work](docs/auto-switch.md)
 - **Codex too.** `cswap codex` switches OpenAI Codex CLI logins the same way, from local files. Its own network use is limited to one optional read of the live account's usage through Codex itself. [Details](docs/codex.md)
-- **Two dashboards.** A terminal one (`cswap`) and a web one (`cswap gui`) that look the same: usage bars, reset countdowns, your switch line. [How the web one is secured](docs/gui.md)
+- **Two dashboards.** A terminal one (`cswap`) and a web control panel (`cswap gui`) that look the same: usage bars, reset countdowns, your switch line, and buttons for everything the terminal does. [How the web one is secured](docs/gui.md)
 - **Guided setup.** One install line, then `cswap setup` walks you through saving every login you own.
 - **Careful with your logins.** One live copy of each, atomic writes, nothing refreshed in the background for idle accounts. [What it stores and sends](docs/safety.md)
 
@@ -92,7 +92,7 @@ cswap setup
     2  Add more Claude accounts (guided, one login each)
     3  Save my Codex login
     4  Auto-switch: choose when to hop to the next account
-    5  Open the web dashboard
+    5  Open the web control panel
     6  Open the terminal dashboard
     q  Finish
 ```
@@ -258,17 +258,23 @@ Run `cswap` on its own (or `cswap tui`) for the full-screen dashboard: live usag
 
 <img src="assets/tui-watch.png" width="760" alt="cswap watch — live 5h/7d usage bars for every account, with reset times and the active account marked">
 
-### Web dashboard (GUI)
+### Web control panel (GUI)
 
-Prefer a window to a terminal? `cswap gui` opens a dashboard in your browser, laid out like the terminal dashboard: every Claude account with its 5-hour and 7-day bars, reset countdowns and your switch line, and your Codex accounts underneath.
+Prefer a window to a terminal? `cswap gui` (or `aswap gui`) opens a control panel in your browser, laid out like the terminal dashboard: every Claude account with its 5-hour and 7-day bars, reset countdowns and your switch line, your Codex accounts underneath, and buttons for what the terminal does on keys:
+
+- **Switch** an account, **rotate**, pick the **best** one, or the **next available** (skips accounts at their limit). The same for Codex.
+- **Disable / enable**, **remove**, give an account an **alias**, set its own **switch-away line**.
+- **Save current login**: a login in use that cswap has not stored is listed first as `[not saved]` with a save button.
+- **Add account**: opens Claude Code's (or Codex's) sign-in in your browser and saves the result. **Add token** takes a setup-token or API key.
+- **Auto-switch**: start, stop or dry-run it, and change the threshold, weekly line, strategy and keepalive. It runs inside the dashboard, so it stops with it; run auto-switch in one place only.
 
 ```bash
-cswap gui                # read-only: look, don't touch
-cswap gui --write        # also switch (Claude and Codex), enable/disable, and add the current login
+cswap gui                # the control panel
+cswap gui --read-only    # a view only: no buttons that change anything
 cswap gui --no-open      # print the link instead of opening a browser
 ```
 
-It listens on `127.0.0.1` only, on a random port, and the link carries a one-time token that changes on every run. Only requests from the page itself are accepted, and nothing is changed unless you started it with `--write`. On a shared machine use `--no-open` and paste the link yourself.
+It listens on `127.0.0.1` only, on a random port, and the link carries a one-time token that changes on every run: if you restart it, open the new link (an old tab says so). Only requests from the page itself are accepted. On a shared machine use `--read-only` or `--no-open`. [Every check and what each button sends](docs/gui.md)
 
 ### Refresh expired tokens
 
@@ -516,7 +522,7 @@ cswap add-token --email user@example.com     # optional label override
 - [docs/auto-switch.md](docs/auto-switch.md) — the exact auto-switch rules: hysteresis margins, landing rules, per-account thresholds and tiers, polling cadence. Read it to find out why it did or didn't switch.
 - [docs/safety.md](docs/safety.md) — what cswap stores, every network call it makes and when, what a ban risk can and cannot mean, and what a failure looks like. Read it before trusting it with accounts you care about.
 - [docs/codex.md](docs/codex.md) — how Codex switching works and where its usage numbers come from.
-- [docs/gui.md](docs/gui.md) — every check the web dashboard applies before it acts.
+- [docs/gui.md](docs/gui.md) — every check the web control panel applies before it acts, and exactly what each button sends.
 - [docs/json-output.md](docs/json-output.md) — every field in `--json` output, including the optional ones. Read it before writing a script against `cswap list --json` or `cswap auto --json`.
 - [docs/menubar.md](docs/menubar.md) — how the macOS menu bar runs under launchd: start at login, the wrapper app in `/Applications`, file locations, upgrades, the Login Items switch. Read it when the icon is missing or the service misbehaves.
 

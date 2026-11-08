@@ -1466,7 +1466,7 @@ def _setup_command(argv: list[str]) -> None:
 
 
 def _gui_command(argv: list[str]) -> None:
-    """Handle `cswap gui [--write] [--no-open] [--port N]`.
+    """Handle `cswap gui [--read-only] [--no-open] [--port N]`.
 
     Pre-dispatched like `auto`: a positional subcommand can't live in the main
     parser's required flag group. Serves a loopback-only web dashboard; see
@@ -1475,14 +1475,17 @@ def _gui_command(argv: list[str]) -> None:
     parser = argparse.ArgumentParser(
         prog=f"{_prog_name()} gui",
         description=(
-            "Open a local web dashboard of your accounts. Read-only unless "
-            "--write is given."
+            "Open the local control panel in your browser: switch, add and "
+            "remove accounts, run auto-switch. --read-only makes it a view."
         ),
     )
     parser.add_argument(
-        "--write", action="store_true",
-        help="Allow switching, enabling/disabling and adding the current login",
+        "--read-only", action="store_true",
+        help="A view only: no switching, adding, removing or auto-switch",
     )
+    # The page used to be read-only unless asked; --write is kept so old
+    # scripts and habits keep working. It no longer changes anything.
+    parser.add_argument("--write", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument(
         "--no-open", action="store_true",
         help="Print the link instead of opening a browser (use on shared machines)",
@@ -1499,7 +1502,7 @@ def _gui_command(argv: list[str]) -> None:
     try:
         switcher = ClaudeAccountSwitcher(debug=args.debug)
         _guard_root(switcher)
-        server = GuiServer(switcher, write=args.write, port=args.port)
+        server = GuiServer(switcher, write=not args.read_only, port=args.port)
     except ClaudeSwitchError as e:
         error(f"Error: {e}")
         sys.exit(1)
@@ -1517,7 +1520,7 @@ def _gui_command(argv: list[str]) -> None:
         import webbrowser
 
         opened = webbrowser.open(link)
-    mode = "can change accounts" if args.write else "read-only"
+    mode = "read-only" if args.read_only else "can change accounts"
     # flush: serve_forever() blocks, and a redirected stdout (ssh, a log file)
     # would otherwise hold the link in its buffer until exit.
     print(f"{accent('Dashboard')} on {base} ({mode}). Ctrl-C to stop.", flush=True)
@@ -1703,7 +1706,7 @@ Commands:
   %(prog)s add                        add the current account
   %(prog)s setup                      guided first-run: logins, auto-switch, dashboards
   %(prog)s onboard                    add all your accounts, one guided login each
-  %(prog)s gui [--write]              local web dashboard (read-only unless --write)
+  %(prog)s gui [--read-only]          web control panel: switch, add, remove, auto-switch
   %(prog)s add-token [TOKEN|-]        register a setup-token or API key
   %(prog)s remove <num|email>         remove an account
   %(prog)s disable <num|email>        hold an account out of auto-rotation
