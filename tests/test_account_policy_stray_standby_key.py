@@ -7,7 +7,7 @@ and the verb that wrote it. Anyone who ran the earlier build still carries
 does now: nothing. The ranking ignores it, the policy reader ignores it, an
 unrelated write preserves it (the store is hand-editable JSON and tolerates
 unknown keys, exactly as `_disabled_from_data` does), `--list --json` does not
-surface it, and `cswap standby` is no longer a command.
+surface it, and `aswap standby` is no longer a command.
 
 This is the only test file that names the key, because it has to inject it.
 
@@ -101,7 +101,7 @@ class TestTheJsonRowDoesNotSurfaceTheStrayKey(PolicyStoreBase):
 
 
 class TestTheVerbIsGone(PolicyStoreBase):
-    """`cswap standby 1` is not a command and writes nothing."""
+    """`aswap standby 1` is not a command and writes nothing."""
 
     def test_the_verb_is_not_in_the_subcommand_map(self):
         assert "standby" not in cli._SUBCOMMAND_FLAGS

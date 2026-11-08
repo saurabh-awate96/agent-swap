@@ -442,7 +442,7 @@ class TestConflictPolicy:
 
         err = capsys.readouterr().err
         assert "alice@example.com is your current live login" in err
-        assert "cswap --switch-to 1 --force" in err
+        assert "aswap --switch-to 1 --force" in err
 
     def test_import_without_matching_live_login_prints_no_hint(
         self, temp_home: Path, capsys
@@ -682,7 +682,7 @@ class TestValidation:
             import_accounts(s, str(temp_home / "nope.cswap"))
 
     def test_still_encrypted_file_rejected(self, temp_home: Path):
-        """`cswap export - | gpg -c > backup.gpg` is documented, so importing
+        """`aswap export - | gpg -c > backup.gpg` is documented, so importing
         the result without decrypting it first is the obvious slip. The
         undecrypted bytes must surface as a TransferError carrying the decrypt
         hint, not as a bare UnicodeDecodeError."""
@@ -753,7 +753,7 @@ class TestPipeMode:
         assert seq["accounts"]["1"]["email"] == "alice@example.com"
 
     def test_import_from_stdin_rejects_binary(self, temp_home: Path):
-        """`cat backup.gpg | cswap import -` is the pipe-mode form of the same
+        """`cat backup.gpg | aswap import -` is the pipe-mode form of the same
         slip: a strict-UTF-8 stdin raises while reading, before any JSON is
         parsed, so the guard has to sit on the read itself."""
         s = _linux_switcher(temp_home)
@@ -1515,7 +1515,7 @@ class TestExportSkipsBrokenSlots:
     def test_stdout_pipe_mode_keeps_stdout_pure_json(
         self, temp_home: Path, capsys
     ):
-        """cswap --export - must produce valid JSON on stdout even when one
+        """aswap --export - must produce valid JSON on stdout even when one
         slot is broken — warning must go to stderr."""
         s = _linux_switcher(temp_home)
         _seed_account(s, 1, "alice@example.com")
@@ -1562,7 +1562,7 @@ class TestImportSessionInvalidation:
 
         import_accounts(s, str(out), force=True)
 
-        # Credential material dropped → next `cswap run` re-bootstraps from
+        # Credential material dropped → next `aswap run` re-bootstraps from
         # the imported backup; profile history (.claude.json) survives.
         assert not (session_dir / ".credentials.json").exists()
         assert (session_dir / ".claude.json").exists()
@@ -1666,7 +1666,7 @@ class TestImportClearsDeadTokenQuarantine:
     def test_reimport_after_removal_lifts_orphan_quarantine(
         self, temp_home: Path, capsys
     ):
-        """The case the overwrite-only fix would miss: `cswap remove` never
+        """The case the overwrite-only fix would miss: `aswap remove` never
         prunes usage.json, so re-importing a removed identity into the same
         slot is classified `imported` yet inherits the orphan dead-token row.
         A plain import (no --force) must still clear it."""
@@ -1679,7 +1679,7 @@ class TestImportClearsDeadTokenQuarantine:
         out = temp_home / "bob.cswap"
         export_accounts(s, str(out), account="2")
 
-        # Simulate `cswap remove 2`: drop the sequence entry, leave the
+        # Simulate `aswap remove 2`: drop the sequence entry, leave the
         # usage.json row behind (removal doesn't prune the usage store).
         data = s._get_sequence_data()
         del data["accounts"]["2"]
@@ -1795,7 +1795,7 @@ class TestImportClearsDeadTokenQuarantine:
         account whose row carries a real org — which is all of them, checked on
         the live store: three slots, three non-empty uuids — the lookup returns
         nothing, token_dead() is False, and the import auto-heal it feeds never
-        fires. The slot the user was told to fix with `cswap import` gets
+        fires. The slot the user was told to fix with `aswap import` gets
         "already exists, use --force" instead.
 
         The previous shape passed entry["org_uuid"] straight through, so this
@@ -1827,7 +1827,7 @@ class TestImportClearsDeadTokenQuarantine:
         The import heal compares only against the backup. So when the strike is
         bound to the LIVE generation and the backup has since moved, the
         collectors correctly read the slot as quarantined while the import
-        reads it as healthy and refuses to replace it — and `cswap import` is
+        reads it as healthy and refuses to replace it — and `aswap import` is
         exactly what the "re-login needed" message tells the user to run.
         """
         from claude_swap import oauth
@@ -1946,7 +1946,7 @@ class TestImportClearsDeadTokenQuarantine:
     ):
         """The heal path rewrites stored creds like --force does, so it must
         hit the same live-session warning: a running session-mode instance
-        keeps its own credential copy until restarted via `cswap run`."""
+        keeps its own credential copy until restarted via `aswap run`."""
         import os as _os
 
         from claude_swap.session import session_dir_for
@@ -2134,7 +2134,7 @@ def _live_creds(tag: str) -> dict:
 
 
 def _usage_row(email: str, org_uuid: str = "", pct: float = 42.0, age_s: float = 30.0) -> dict:
-    """An account row as another machine's ``cswap list --json`` prints it.
+    """An account row as another machine's ``aswap list --json`` prints it.
 
     Slot 9 on purpose: rows are matched by identity, never by the producer's
     slot number."""

@@ -1,10 +1,10 @@
 #!/bin/sh
-# agent-swap one-line installer (macOS / Linux). Gives you the aswap command (cswap still works).
+# agent-swap one-line installer (macOS / Linux). Gives you the aswap command (aswap still works).
 #
 #   curl -LsSf https://raw.githubusercontent.com/saurabh-awate96/agent-swap/main/install.sh | sh
 #
 # What it does: installs agent-swap with uv (or pipx if that is what you have),
-# puts it on your PATH, then opens `cswap setup` so you can save your logins.
+# puts it on your PATH, then opens `aswap setup` so you can save your logins.
 # It never reads or changes a Claude/Codex login itself.
 #
 # Knobs (all optional):
@@ -48,7 +48,7 @@ else
   TOOL=uv
 fi
 
-# 3. Install. The project used to be called claude-swap and both provide `cswap`,
+# 3. Install. The project used to be called claude-swap and both provide `aswap`,
 #    so an old install is replaced (your saved logins live elsewhere and stay).
 if [ "$TOOL" = uv ]; then
   if uv tool list 2>/dev/null | grep -q '^claude-swap '; then note "replacing the old claude-swap install"; uv tool uninstall claude-swap >/dev/null 2>&1 || true; fi
@@ -67,9 +67,9 @@ else
   pipx install --force "$SPEC" >/dev/null || die "Install failed. pipx needs Python 3.12 or newer."
   BIN="$(pipx environment --value PIPX_BIN_DIR)"
 fi
-[ -x "$BIN/cswap" ] || die "Installed, but $BIN/cswap is missing."
+[ -x "$BIN/aswap" ] || die "Installed, but $BIN/aswap is missing."
 
-# 4. PATH, so `cswap` works in new terminals.
+# 4. PATH, so `aswap` works in new terminals.
 case ":$PATH:" in
   *":$BIN:"*) ;;
   *)
@@ -79,12 +79,12 @@ case ":$PATH:" in
     note "Open a new terminal, or run: export PATH=\"$BIN:\$PATH\""
     ;;
 esac
-say "Installed: $("$BIN/aswap" --version 2>/dev/null || echo cswap)"
+say "Installed: $("$BIN/aswap" --version 2>/dev/null || echo agent-swap)"
 
 # 5. Guided setup. Under `curl | sh` stdin is the script, so read the keyboard
 #    from the terminal; with no terminal at all (CI), just say what to run.
 if [ -z "${CSWAP_NO_SETUP:-}" ] && ( : </dev/tty ) 2>/dev/null; then
   printf '\n'
-  exec "$BIN/cswap" setup </dev/tty
+  exec "$BIN/aswap" setup </dev/tty
 fi
-printf '\n  Next: %scswap setup%s\n\n' "$A" "$R"
+printf '\n  Next: %saswap setup%s\n\n' "$A" "$R"

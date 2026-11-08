@@ -1,4 +1,4 @@
-"""Tests for `cswap move` (ClaudeAccountSwitcher.move_account)."""
+"""Tests for `aswap move` (ClaudeAccountSwitcher.move_account)."""
 
 import json
 import os
@@ -587,7 +587,7 @@ class TestMoveSessionProfileKeychain:
     On macOS the profile's credential lives in a keychain item whose service
     name is the hash of the profile DIR PATH
     (``session.keychain_service_name``), so ``os.replace`` on the dir leaves
-    the item behind at the old name. Nothing in cswap ever names that service
+    the item behind at the old name. Nothing in aswap ever names that service
     again -- ``purge`` enumerates the profile dirs that still exist -- so an
     entry missed here is permanent.
     """

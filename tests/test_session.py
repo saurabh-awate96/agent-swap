@@ -425,7 +425,7 @@ class TestBootstrap:
         session_dir, _, _ = manager.setup_session("2", share=False, pre_refresh=False)
 
         assert refresh_rotates == []
-        # Seeded from the stored backup, untouched by any cswap refresh.
+        # Seeded from the stored backup, untouched by any aswap refresh.
         assert (session_dir / ".credentials.json").read_text() == CREDS
         assert (
             seeded_switcher.read_account_credentials(ACCOUNT_NUM, ACCOUNT_EMAIL)
@@ -564,7 +564,7 @@ class TestBootstrap:
 
         `legacy_location=True` is the upgrade path: the marker moved to a
         SIBLING of the profile dir (a child could not be written by the fault
-        that motivates it), and a profile marked by an older cswap on this
+        that motivates it), and a profile marked by an older aswap on this
         machine has a pending re-bootstrap that the move must not drop.
         """
         session_dir, _, _ = manager.setup_session("2", share=False)
@@ -608,7 +608,7 @@ class TestBootstrap:
         monkeypatch,
     ):
         """A live session whose profile reads invalid (the user ran `/login` as
-        another account inside it) must not be re-seeded by a second `cswap run`.
+        another account inside it) must not be re-seeded by a second `aswap run`.
 
         `_bootstrap` deletes the profile's Keychain entry and overwrites
         .credentials.json; every other branch guards that with a quiescence
@@ -634,7 +634,7 @@ class TestBootstrap:
         self, manager, seeded_switcher, auth_status_tracks_seed, refresh_rotates,
         legacy_location: bool,
     ):
-        """A second `cswap run` joining a live session must not invalidate
+        """A second `aswap run` joining a live session must not invalidate
         under the running claude; the marker survives for later."""
         session_dir, _, _ = manager.setup_session("2", share=False)
         (session_dir / ".credentials.json").write_text("live lineage")
@@ -1688,7 +1688,7 @@ class TestRun:
             manager.run("2", [])
 
         # Warned, and the overrides are scrubbed from the launched env —
-        # `cswap run 2` means account 2, not whatever the API key resolves to.
+        # `aswap run 2` means account 2, not whatever the API key resolves to.
         out = capsys.readouterr().out
         assert "Ignoring ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN" in out
         assert "ANTHROPIC_API_KEY" not in exc.value.env
@@ -1938,7 +1938,7 @@ class TestGuards:
     ):
         """Re-login + --add-account (or any backup cred write) must force the
         non-live session profile to re-bootstrap — otherwise the documented
-        recovery path leaves `cswap run` on stale credentials that still pass
+        recovery path leaves `aswap run` on stale credentials that still pass
         the local reuse check."""
         session_dir = session_dir_for(
             seeded_switcher.backup_dir, ACCOUNT_NUM, ACCOUNT_EMAIL
@@ -2123,7 +2123,7 @@ class TestGuards:
     def test_list_skips_refresh_for_live_session_accounts(
         self, seeded_switcher, monkeypatch
     ):
-        """cswap --list must not proactively refresh an account that is live in
+        """aswap --list must not proactively refresh an account that is live in
         a session — rotating the backup copy's token could invalidate the
         session's copy."""
         session_dir = session_dir_for(
@@ -2339,7 +2339,7 @@ class TestShareHistoryPosix:
         assert "63802" in out
         assert "soribashi" in out
         # Sharing is the default, so the command to repeat is the plain one.
-        assert "then relaunch:  cswap run 2\n" in out
+        assert "then relaunch:  aswap run 2\n" in out
         # Pin the epoch-ms -> local-time conversion itself, not just the
         # surrounding text — a timezone bug (UTC mislabeled as local) or an
         # off-by-1000 that still lands in a plausible-looking date would slip
@@ -2453,7 +2453,7 @@ class TestShareHistoryPosix:
         monkeypatch.setattr(session_mod, "_MIGRATION_LOCK_TIMEOUT", 0.2)
 
         # Hold the migration lock open, simulating a peer already merging
-        # some profile — any profile, from any cswap store — into the same
+        # some profile — any profile, from any aswap store — into the same
         # shared tree. The lock is a file in that tree.
         with FileLock(source / session_mod.MIGRATION_LOCK):
             mgr._sync_sharing(session_dir, share=True, share_history=True)
@@ -2464,7 +2464,7 @@ class TestShareHistoryPosix:
         # And the reason given is the peer, not a session in this profile.
         out = capsys.readouterr().out
         assert "merging history into" in out
-        assert "relaunch:  cswap run 2\n" in out
+        assert "relaunch:  aswap run 2\n" in out
 
     def _lock_that_lets_a_peer_finish_first(self, monkeypatch, on_acquire):
         """Stand in for the migration lock a peer is already holding.
@@ -2961,7 +2961,7 @@ class TestHistoryMergeSharesTheDestination:
     def test_a_lock_that_cannot_be_opened_skips_the_merge_not_the_launch(
         self, history_setup, monkeypatch, capsys
     ):
-        """The lock is a file in ``~/.claude``, which cswap does not own. A
+        """The lock is a file in ``~/.claude``, which aswap does not own. A
         read-only one must cost this launch its history sharing, not the
         launch."""
         _, session_dir, mgr = history_setup
@@ -3457,7 +3457,7 @@ class TestShareHistoryWindows:
 
     @pytest.fixture
     def launch(self, win_history, capture_exec, auth_status_tracks_seed, refresh_rotates):
-        """``cswap run 2`` up to the exec, through bootstrap and the sync."""
+        """``aswap run 2`` up to the exec, through bootstrap and the sync."""
         source, session_dir, mgr = win_history
         # The seed went in under the macOS backend the fixtures pin; the
         # bootstrap reads through the Windows one, so persist it there too.
@@ -3930,7 +3930,7 @@ class TestHistoryMergeNeverLooksThroughLinks:
 
 
 def _turn_sharing(mgr: SessionManager, value: str) -> None:
-    """Write ``run.shareHistory`` the way ``cswap config set`` does."""
+    """Write ``run.shareHistory`` the way ``aswap config set`` does."""
     set_setting(mgr.switcher.backup_dir, "run.shareHistory", value)
 
 
@@ -3941,7 +3941,7 @@ def _active_default_login(monkeypatch, mgr: SessionManager) -> None:
     )
 
 
-OPT_OUT = "cswap config set run.shareHistory false"
+OPT_OUT = "aswap config set run.shareHistory false"
 
 
 class TestShareHistoryDecision:
@@ -4010,7 +4010,7 @@ class TestShareHistoryDecision:
         assert manager._share_history_asked is False
 
     def test_plain_claude_launch_never_asks(self, manager, capture_exec, capsys):
-        """A bare unmapped ``cswap run`` is plain claude: no profile, so no
+        """A bare unmapped ``aswap run`` is plain claude: no profile, so no
         history question, and nothing to warn a Windows user about."""
         manager.switcher.platform = Platform.WINDOWS
         _turn_sharing(manager, "true")
@@ -4115,7 +4115,7 @@ class TestShareHistoryIsTheDefault:
 
     @pytest.fixture
     def launch(self, manager, capture_exec, auth_status_tracks_seed, refresh_rotates):
-        """``cswap run 2`` up to the exec; returns the profile it launched into."""
+        """``aswap run 2`` up to the exec; returns the profile it launched into."""
 
         def run(**kwargs) -> Path:
             with pytest.raises(_ExecCalled) as exc:
@@ -4208,7 +4208,7 @@ class TestShareHistoryIsTheDefault:
         self, launch, manager, monkeypatch, temp_home, capsys
     ):
         """The account's sessions wrote into its profile; then it became the
-        default login, and ``cswap run`` for it is plain claude on
+        default login, and ``aswap run`` for it is plain claude on
         ``~/.claude``. Without a merge on that path the old conversations
         stay out of ``--resume`` for as long as the account stays the
         default, however often it is run."""
@@ -4260,7 +4260,7 @@ class TestShareHistoryIsTheDefault:
     def test_links_made_on_the_fast_path_are_undone_by_a_later_opt_out(
         self, launch, manager, monkeypatch, temp_home
     ):
-        """They are recorded like any other link cswap makes. Unrecorded,
+        """They are recorded like any other link aswap makes. Unrecorded,
         ``--no-share-history`` would leave the profile on the shared history."""
         session_dir = launch(share_history=False)
         self._give_own_history(session_dir)
@@ -4296,7 +4296,7 @@ class TestShareHistoryIsTheDefault:
         assert "CLAUDE_CONFIG_DIR" not in exc.value.env
         out = capsys.readouterr().out
         assert out.count("keeps its own") == 1
-        assert "then relaunch:  cswap run 2\n" in out
+        assert "then relaunch:  aswap run 2\n" in out
         assert (
             session_dir / "projects" / "-home-user-app" / "bbb.jsonl"
         ).read_text() == "profile-b\n"
@@ -4405,7 +4405,7 @@ class TestShareHistoryIsTheDefault:
         self, history_setup, monkeypatch, capsys
     ):
         """The command to repeat has to share history when it is repeated.
-        With ``run.shareHistory false`` a plain ``cswap run 2`` would not."""
+        With ``run.shareHistory false`` a plain ``aswap run 2`` would not."""
         _, session_dir, mgr = history_setup
         _turn_sharing(mgr, "false")
         self._give_own_history(session_dir)
@@ -4424,7 +4424,7 @@ class TestShareHistoryIsTheDefault:
         mgr._sync_sharing(session_dir, share=True, share_history=True)
 
         assert (
-            "then relaunch:  cswap run 2 --share-history\n"
+            "then relaunch:  aswap run 2 --share-history\n"
             in capsys.readouterr().out
         )
 
@@ -5071,7 +5071,7 @@ class TestAConsumedGrantIsNotSpentOnAProfileThatWonBootstrap:
     """A one-time grant consumed for THIS pass must reach the profile it was for.
 
     The consume runs before the bootstrap lock (it POSTs, and must never hold
-    one). The under-lock re-check then returns early when another `cswap run`
+    one). The under-lock re-check then returns early when another `aswap run`
     bootstrapped while we waited — at which point this pass has already burned
     a one-time refresh token whose successor nobody uses for the session it was
     fetched for. The successor is persisted to the BACKUP, so nothing is lost;

@@ -1,4 +1,4 @@
-"""Tests for the launchd LaunchAgent that keeps ``cswap menubar`` alive.
+"""Tests for the launchd LaunchAgent that keeps ``aswap menubar`` alive.
 
 ``subprocess.run`` is patched throughout so the real ``launchctl`` is never
 driven: these assert the argv this module *shapes* and how it reads launchctl's
@@ -66,7 +66,7 @@ def _router(responses: dict[str, subprocess.CompletedProcess]):
 
 
 def test_build_plist_is_parseable_and_runs_the_menubar_worker(tmp_path):
-    # Plain `cswap menubar` asks launchd to run the service; --foreground is the
+    # Plain `aswap menubar` asks launchd to run the service; --foreground is the
     # one invocation that draws the status item in place, so that is the job.
     parsed = plistlib.loads(launch_agent.build_plist(PROGRAM, home=tmp_path))
     assert parsed["Label"] == launch_agent.LABEL
@@ -175,7 +175,7 @@ def test_resolve_program_prefers_the_console_script(tmp_path):
 
 
 def test_resolve_program_keeps_the_symlink_and_does_not_follow_it(tmp_path):
-    """`uv tool install` links ~/.local/bin/cswap into the tool's virtualenv.
+    """`uv tool install` links ~/.local/bin/aswap into the tool's virtualenv.
 
     Resolving that symlink would pin the virtualenv-internal path, which a
     reinstall recreates — exactly the path this module exists to avoid.
@@ -476,7 +476,7 @@ def test_status_ignores_a_non_numeric_pid_line(tmp_path):
     assert result["pid"] is None
 
 
-# --- ensure: plain `cswap menubar` -----------------------------------------
+# --- ensure: plain `aswap menubar` -----------------------------------------
 
 
 class _FakeLaunchd:
@@ -1002,7 +1002,7 @@ def test_an_unstamped_worker_is_restarted_once_it_is_past_the_grace_period(tmp_p
     """Workers from before stamps existed (0.30, 1.0.0b1) never write one.
 
     Without this rule an external upgrade would leave them running the old
-    build for ever: plain `cswap menubar` would read "no stamp" as "current".
+    build for ever: plain `aswap menubar` would read "no stamp" as "current".
     """
     _home, data = _homes(tmp_path)
     old = _FakeLaunchd(etime="05:00")
@@ -1032,7 +1032,7 @@ def test_an_unstamped_worker_is_left_alone_when_ps_cannot_date_it(tmp_path):
     sys.platform == "win32" or os.geteuid() == 0, reason="needs a read-only directory"
 )
 def test_an_unstamped_worker_is_not_restarted_when_no_stamp_could_be_written(tmp_path):
-    # Otherwise every `cswap menubar` would restart it: the successor could
+    # Otherwise every `aswap menubar` would restart it: the successor could
     # not write a stamp either.
     _home, data = _homes(tmp_path)
     data.chmod(0o500)
@@ -1089,7 +1089,7 @@ def test_worker_build_compares_the_commit_too(tmp_path, monkeypatch):
 
 
 def test_ensure_restarts_a_running_worker_of_an_older_build(tmp_path, monkeypatch):
-    """`uv tool upgrade` by hand leaves the old build running; `cswap menubar` fixes that."""
+    """`uv tool upgrade` by hand leaves the old build running; `aswap menubar` fixes that."""
     home, data = _homes(tmp_path)
     _login_plist(home)
     _stamp(data, pid=4242, version="0.0.0")

@@ -92,12 +92,12 @@ def _freeze_real_store_specs() -> tuple[tuple[Path, bool], ...]:
       Both must be protected: the default-profile developer and the
       override-profile developer are both real users of this same conftest.
 
-    ``recursive=True`` roots (the cswap backup root, current-XDG and legacy)
+    ``recursive=True`` roots (the aswap backup root, current-XDG and legacy)
     are exclusively cswap's own data — everything beneath them is protected,
     any depth. This applies to an override-derived backup root too: it's
     still cswap's own data regardless of which env var pointed at it.
 
-    ``recursive=False`` roots are directories cswap shares with unrelated
+    ``recursive=False`` roots are directories aswap shares with unrelated
     machinery — notably ``~/.claude``, which also holds Claude Code CLI's
     OWN job/worktree/project state (this worktree itself lives under
     ``~/.claude/jobs/...``, several directories deep) and can contain a
@@ -145,7 +145,7 @@ def _freeze_real_store_specs() -> tuple[tuple[Path, bool], ...]:
             # directory exists, so not one mkdir is attempted above them.
             (_paths.get_default_claude_config_home() / "projects", True),
             (_paths.get_claude_config_home() / "projects", True),
-            # Codex's home (`cswap codex` reads and swaps its auth.json): all
+            # Codex's home (`aswap codex` reads and swaps its auth.json): all
             # of it is the developer's own Codex state, at any depth. The
             # env spelling is only present in the ambient snapshot.
             (Path.home() / ".codex", True),
@@ -492,7 +492,7 @@ def _isolate_real_home(request, tmp_path_factory, monkeypatch):
     monkeypatch.delenv("CLAUDE_SECURESTORAGE_CONFIG_DIR", raising=False)
     monkeypatch.delenv("XDG_DATA_HOME", raising=False)
     # Same reason: it bypasses $HOME, so an exported one would point
-    # `cswap codex` at the developer's real ~/.codex. Codex tests set their own.
+    # `aswap codex` at the developer's real ~/.codex. Codex tests set their own.
     monkeypatch.delenv("CODEX_HOME", raising=False)
     # The menu bar's wrapper .app lives in /Applications, outside $HOME, and
     # launch_agent.uninstall() deletes it: on a developer's Mac the real one

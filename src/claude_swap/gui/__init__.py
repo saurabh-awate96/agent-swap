@@ -1,1 +1,1 @@
-"""The `cswap gui` local web dashboard."""
+"""The `aswap gui` local web dashboard."""

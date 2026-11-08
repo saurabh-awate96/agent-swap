@@ -23,7 +23,7 @@ _CODE = re.compile(r"\b[A-Z0-9]{4}-[A-Z0-9]{4,6}\b")  # a device-login code, lik
 
 
 class AutoRunner:
-    """Runs the auto-switch engine (the same one `cswap auto` runs) in a thread.
+    """Runs the auto-switch engine (the same one `aswap auto` runs) in a thread.
 
     shortcut: engines are single-use, so changing a setting restarts it; the
     event log is the last EVENTS lines kept in memory only.
@@ -156,7 +156,7 @@ class CodexAutoRunner:
         rows = cx.rows(persist=True, probe=True)
         live = next((r for r in rows if r["active"]), None)
         if live is None:
-            self._event("no-switch", "no live Codex login that cswap manages")
+            self._event("no-switch", "no live Codex login that aswap manages")
             return
         load = load_percent(live["usage"], now)
         line = live["threshold"] or global_line

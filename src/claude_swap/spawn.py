@@ -32,7 +32,7 @@ reaches the child, where ``close_fds=True`` would have closed it. Closing that
 window needs Darwin's ``POSIX_SPAWN_CLOEXEC_DEFAULT``, which ``os.posix_spawn``
 does not expose, and a native launcher is not worth a cosmetic bug. The
 limitation is accepted on these grounds: Python creates descriptors
-non-inheritable, no cswap code makes one inheritable, any that already exist
+non-inheritable, no aswap code makes one inheritable, any that already exist
 send the call down the fork path, and what a child could pick up is a copy it
 holds only until it exits, whether that child is ``ps``, ``security`` or a
 ``claude auth status`` run.

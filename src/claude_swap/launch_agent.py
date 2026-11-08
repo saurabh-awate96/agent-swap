@@ -1,11 +1,11 @@
-"""Run ``cswap menubar`` as a launchd LaunchAgent instead of a foreground process.
+"""Run ``aswap menubar`` as a launchd LaunchAgent instead of a foreground process.
 
 A menu bar item that dies with the terminal that started it, and never comes
 back after a logout or reboot, is the wrong shape for a menu bar app. So
-``cswap menubar`` does not run the menu bar in the calling process: it makes
+``aswap menubar`` does not run the menu bar in the calling process: it makes
 sure launchd runs it (:func:`ensure`) and returns. launchd then starts it at
 login and restarts it after a crash. The process launchd spawns is
-``cswap menubar --foreground``, the one invocation that draws the status item
+``aswap menubar --foreground``, the one invocation that draws the status item
 in place. (The wrapper ``.app`` that process hops into is
 ``claude_swap.app_bundle``'s business: launchd only ever needs the console
 script.)
@@ -17,25 +17,25 @@ same plist moves to the data directory: launchd can still be handed it for the
 current session (that is how ``brew services run`` works too), but nothing
 scans that directory at login. The file is deliberately kept there rather than
 deleted, because a missing plist means "never set up" and would turn Start at
-login back on the next time ``cswap menubar`` ran. Both present means the login
+login back on the next time ``aswap menubar`` ran. Both present means the login
 copy wins. Nothing here moves a plist *and* touches launchd in one step: the
 running job keeps its in-memory definition, and the menu toggle must never
 stop the app whose menu was just clicked.
 
 *launchd's own worker is recognised by pid, not by flag.* ``launchctl print``
 names the job's pid; when that is this process, launchd started us and
-``cswap menubar`` has to run the menu bar here instead of trying to start the
+``aswap menubar`` has to run the menu bar here instead of trying to start the
 service it already is. That also keeps plists written before the
-``--foreground`` flag existed working: they still say plain ``cswap menubar``.
+``--foreground`` flag existed working: they still say plain ``aswap menubar``.
 
 Two older decisions are worth restating, because both differ from the obvious
 approach:
 
 *The plist pins the console script, not ``sys.executable``.* A LaunchAgent
 outlives upgrades, and the two paths age differently: ``uv tool upgrade`` (and
-``cswap upgrade``) rebuilds the tool's virtualenv — ``sys.executable`` points
+``aswap upgrade``) rebuilds the tool's virtualenv — ``sys.executable`` points
 inside that virtualenv and can be replaced — while the console script keeps its
-path across upgrades. Pinning the script means an upgraded cswap needs a
+path across upgrades. Pinning the script means an upgraded aswap needs a
 ``launchctl kickstart``, not a reinstalled service. ``sys.executable -m
 claude_swap`` stays as the fallback for installs that expose no console script.
 
@@ -104,7 +104,7 @@ _FORWARDED_ENV_KEYS = (
 )
 
 # Written by the worker at start: its pid and build. Lets a later `cswap
-# menubar` (or `cswap upgrade`) tell a running instance of an old build from
+# menubar` (or `aswap upgrade`) tell a running instance of an old build from
 # the installed one, whichever way the upgrade happened.
 STAMP_NAME = "menubar_worker.json"
 
@@ -513,7 +513,7 @@ def running_as_service(label: str = LABEL, uid: int | None = None) -> bool:
     """Whether THIS process is the launchd job for ``label``.
 
     launchd's ``print`` names the job's pid; a match means launchd started us,
-    through whichever plist it holds, so ``cswap menubar`` must run the menu bar
+    through whichever plist it holds, so ``aswap menubar`` must run the menu bar
     here rather than try to start the service it already is. Off macOS there is
     no launchd to ask.
     """

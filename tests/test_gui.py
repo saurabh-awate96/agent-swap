@@ -1,6 +1,6 @@
-"""`cswap gui`: the loopback dashboard server and its safety checks.
+"""`aswap gui`: the loopback dashboard server and its safety checks.
 
-The server is the only network-facing surface cswap has, so most of these
+The server is the only network-facing surface aswap has, so most of these
 tests are about what it refuses: a request from the wrong Host (DNS
 rebinding), the wrong Origin or a non-JSON body (CSRF), a missing token, or
 any change while read-only. A refused request must never reach the switcher.

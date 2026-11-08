@@ -416,7 +416,7 @@ class TestAtomicWriteThroughSymlink:
     detaches it and the target silently stops updating. Covers the write
     itself plus the two placement decisions it forces: the temp file goes
     beside the RESOLVED target (else EXDEV across mounts), the 0700 chmod
-    stays on the directory cswap owns (else it narrows — or cannot touch —
+    stays on the directory aswap owns (else it narrows — or cannot touch —
     a foreign one)."""
 
     def test_write_preserves_the_link_and_updates_the_target(self, tmp_path):

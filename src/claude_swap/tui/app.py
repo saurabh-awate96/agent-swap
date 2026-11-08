@@ -59,7 +59,7 @@ class CswapApp(App):
     ) -> None:
         super().__init__()
         self.switcher = switcher
-        self._start = start  # "dashboard" | "watch" (`cswap watch`)
+        self._start = start  # "dashboard" | "watch" (`aswap watch`)
         self._detected = detected  # terminal background sensed pre-driver, or None
         self.source = SnapshotSource(switcher)
         self._store_only = False

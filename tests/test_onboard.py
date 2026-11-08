@@ -1,7 +1,7 @@
-"""`cswap onboard`: several of the user's own accounts in one guided sitting.
+"""`aswap onboard`: several of the user's own accounts in one guided sitting.
 
 The command is the documented manual flow (log in with an account, then
-`cswap add`) run in a loop through Claude Code's own `claude auth login`. These
+`aswap add`) run in a loop through Claude Code's own `claude auth login`. These
 tests pin that it launches exactly that command, saves only after a login
 succeeded, and never logs out.
 """

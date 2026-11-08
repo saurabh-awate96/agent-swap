@@ -332,7 +332,7 @@ class TestCodexControls:
 
 
 class TestCommand:
-    """`cswap gui`: the panel can change accounts unless asked for a view only."""
+    """`aswap gui`: the panel can change accounts unless asked for a view only."""
 
     @pytest.mark.parametrize("argv,write", [([], True), (["--write"], True), (["--read-only"], False)])
     def test_the_flag_decides_whether_it_can_change_accounts(self, argv, write, monkeypatch):

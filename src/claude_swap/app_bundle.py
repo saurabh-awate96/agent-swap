@@ -1,6 +1,6 @@
 """Run the menu bar from inside a wrapper ``.app`` so the process has a bundle ID.
 
-``cswap menubar`` is a console script: the process macOS sees is a bare Python
+``aswap menubar`` is a console script: the process macOS sees is a bare Python
 interpreter somewhere under ``~/.local/share/uv`` (or a pipx venv), and
 ``NSRunningApplication.bundleIdentifier`` for it is nil. Menu bar managers key
 every status item by that identifier (Dimble, Ice, Bartender, SaneBar all do),
@@ -44,7 +44,7 @@ down with the hidden ones (fif7y/dimble#30 traced the same failure for iStat
 Menus). When ``/Applications`` is not writable the bundle falls back to the data
 directory: the menu bar still works, managers just cannot keep it visible.
 
-The bundle is rebuilt (cheaply: only what changed) on every ``cswap menubar``
+The bundle is rebuilt (cheaply: only what changed) on every ``aswap menubar``
 start and the process re-execs into it before AppKit loads. ``uv tool
 --reinstall`` recreating the venv or a managed-Python version bump therefore
 never leaves a stale bundle behind, and launchd keeps the same pid throughout.

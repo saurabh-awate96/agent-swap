@@ -1,6 +1,6 @@
 """TUI policy display.
 
-The per-account policy set through ``cswap threshold`` has
+The per-account policy set through ``aswap threshold`` has
 to be visible where the operator already looks, on both account render paths:
 
 * ``account_card_text`` — the expanded card for the selected account.

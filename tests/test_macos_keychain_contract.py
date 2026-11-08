@@ -379,7 +379,7 @@ class TestOurOwnFileModeIsNotAKeychainFailure:
             state B   degraded=False  sentinel='no credentials'
 
         `degraded=False` disarms `_refuse_degraded_capture`, and the sentinel
-        sends the user to `cswap --add-account`, the one remedy that cannot
+        sends the user to `aswap --add-account`, the one remedy that cannot
         work while the real credential sits unread in the Keychain. The pin's
         best-effort `_delete_active_keychain_entry()` also failed, so a
         residual survives and Claude Code reads Keychain-first — our file is
@@ -548,7 +548,7 @@ class TestOurOwnFileModeIsNotAKeychainFailure:
         no residual and the file genuinely is the authority (t2). From t2 on,
         forever: `degraded=True`, `_fetch_active_usage` reports
         "keychain unavailable" every pass, `_refuse_degraded_capture` blocks
-        `cswap add`, `_resync_rotated_backup` never runs.
+        `aswap add`, `_resync_rotated_backup` never runs.
 
         That violates the same self-heal this predicate's own docstring
         promises: one transient failure must not be permanent for the process.
@@ -609,7 +609,7 @@ class TestOurOwnFileModeIsNotAKeychainFailure:
               with the clear    -> False
               without it        -> True   (degraded forever)
 
-        A latch means `_refuse_degraded_capture` blocks `cswap add`,
+        A latch means `_refuse_degraded_capture` blocks `aswap add`,
         `_fetch_active_usage` returns USAGE_KEYCHAIN_UNAVAILABLE every pass,
         and `_resync_rotated_backup` never runs.
         """
@@ -949,7 +949,7 @@ class TestOurOwnFileModeIsNotAKeychainFailure:
         `_pin_file_mode` zeroes the re-probe deadline, so `_use_keychain()` is
         False for the life of the process and the branch that would record a
         fresh verdict is unreachable. Harm: `_refuse_degraded_capture` refuses
-        `cswap add` forever, and `_fetch_active_usage` returns the
+        `aswap add` forever, and `_fetch_active_usage` returns the
         keychain-unavailable sentinel on every pass, so the active token is
         never refreshed and `_resync_rotated_backup` never runs — the exact
         list `5928119` was written to prevent, one flag over.
@@ -1231,7 +1231,7 @@ class TestPinnedFileModeEndsWhenTheFileIsGone:
         auto-switch         failover fires, switch raises "Current account
                             credential is empty", every tick, for two days
         menu "Switch to"    same refusal
-        a fresh `cswap`     works at once (new process, no pin)
+        a fresh `aswap`     works at once (new process, no pin)
 
     The active account went from 50% to 100% of its weekly limit unobserved.
     """

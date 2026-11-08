@@ -1,8 +1,8 @@
 """Textual-based interactive TUI for claude-swap.
 
-Entry point for ``cswap tui`` (and bare ``cswap`` in an interactive
+Entry point for ``aswap tui`` (and bare ``aswap`` in an interactive
 terminal). Heavy imports (textual, rich) stay inside :func:`run` so the
-plain CLI paths — ``cswap list``, cron's ``cswap auto --once`` — never pay
+plain CLI paths — ``aswap list``, cron's ``aswap auto --once`` — never pay
 for them.
 """
 
@@ -17,7 +17,7 @@ if TYPE_CHECKING:
 def run(switcher: "ClaudeAccountSwitcher", start: str = "dashboard") -> int:
     """Run the TUI over an existing switcher. Returns the process exit code.
 
-    ``start="watch"`` (the ``cswap watch`` command) opens directly on the
+    ``start="watch"`` (the ``aswap watch`` command) opens directly on the
     live watch page, stacked over the dashboard.
     """
     from claude_swap.appearance import detect_terminal_background, drain_stdin

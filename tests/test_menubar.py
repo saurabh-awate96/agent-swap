@@ -754,7 +754,7 @@ def test_menu_note_keeps_the_state_and_drops_the_remedy():
     from claude_swap.switcher import USAGE_RELOGIN_REQUIRED
 
     note = menubar.SENTINEL_NOTES[USAGE_RELOGIN_REQUIRED]
-    assert "cswap add" in note, "premise: the note carries a remedy"
+    assert "aswap add" in note, "premise: the note carries a remedy"
     assert menubar.menu_note(note) == "re-login needed"
 
 
@@ -785,7 +785,7 @@ def test_account_row_shows_the_sentinel_state_not_the_remedy():
         2, "b@x.com", menubar.SENTINEL_NOTES[USAGE_RELOGIN_REQUIRED]
     )
     assert label.endswith("re-login needed")
-    assert "cswap add" not in label
+    assert "aswap add" not in label
 
 
 def test_set_tooltip_reaches_the_native_item_and_tolerates_its_absence():

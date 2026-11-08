@@ -1,10 +1,10 @@
 # Security
 
-cswap handles login credentials, so security reports are welcome and taken seriously.
+aswap handles login credentials, so security reports are welcome and taken seriously.
 
-**Please do not open a public issue for a vulnerability.** Use GitHub's private reporting: **Security → Report a vulnerability** on this repository. Include what you saw, the version (`cswap --version`), your platform, and the smallest steps to reproduce.
+**Please do not open a public issue for a vulnerability.** Use GitHub's private reporting: **Security → Report a vulnerability** on this repository. Include what you saw, the version (`aswap --version`), your platform, and the smallest steps to reproduce.
 
-In scope: credential exposure (logs, argv, files with loose permissions, error messages), a way to make the web control panel (`cswap gui`) act for a page or another user, lost or overwritten logins, and anything that sends a login somewhere it should not go.
+In scope: credential exposure (logs, argv, files with loose permissions, error messages), a way to make the web control panel (`aswap gui`) act for a page or another user, lost or overwritten logins, and anything that sends a login somewhere it should not go.
 
 How logins are stored and what is sent over the network: [docs/safety.md](docs/safety.md). How the web dashboard is protected: [docs/gui.md](docs/gui.md).
 
