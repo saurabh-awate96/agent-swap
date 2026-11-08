@@ -160,6 +160,8 @@ section { margin-top: 26px; }
 .row > .status { justify-self: start; }
 .meter .lbl { display: none; }
 .meter span { justify-content: flex-end; }
+.meter span.other { justify-content: space-between; }
+.meter span.other .lbl { display: inline; color: var(--warn); }
 .detail { padding: 6px 16px 16px 56px; border-bottom: 1px solid var(--line); background: var(--raised); }
 .detail .limits { max-width: 640px; }
 .detail .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }

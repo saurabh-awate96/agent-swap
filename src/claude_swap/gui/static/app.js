@@ -203,11 +203,12 @@ function limitRow(l) {
   return row;
 }
 
-function meter(l) {
+function meter(l, column) {
   const box = el("div", null, "meter");
   if (!l) { box.append(el("span", "—", "dash")); return box; }
-  const top = el("span");
-  top.append(el("span", l.kind === "session" ? "Session" : l.kind === "week" ? "Weekly" : l.name, "lbl"),
+  const top = el("span", null, l.kind === column ? "" : "other");
+  // A different window in this column (a 30-day limit under "Weekly") always says what it is.
+  top.append(el("span", l.kind === "session" ? "Session" : l.kind === "week" ? "Weekly" : l.kind === "month" ? l.name.replace(" limit", "") : l.name.replace("Weekly · ", ""), "lbl"),
              l.pct == null ? el("b", "—", "dash") : el("b", Math.round(l.pct) + "%"));
   box.append(top, bar(l.pct, l.line));
   return box;
@@ -616,7 +617,7 @@ function accountRow(m) {
     if (!m.active) acts.append(btn("Switch", "ghost small", () => doSwitch(m), { disabled: loginOpen() || busy, title: "Make this the account in use (Enter)" }));
     acts.append(btn(selected === k ? "Close" : "More", "ghost small", () => select(selected === k ? null : k)));
   }
-  row.append(acct, meter(session), meter(weekly), statusPill(m), acts);
+  row.append(acct, meter(session, "session"), meter(weekly, "week"), statusPill(m), acts);
   row.addEventListener("click", () => select(selected === k ? null : k));
   wrap.append(row);
   if (selected === k) wrap.append(detail(m));
