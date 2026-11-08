@@ -1190,3 +1190,30 @@ def test_one_slot_can_be_checked_alone(env, asked):
     assert [who for who, _ in asked.log] == ["a@example.com"]       # the live one was not asked
     with pytest.raises(codex.AccountNotFoundError):
         sw.check_all(only=9)
+
+
+def test_the_live_problem_is_what_openai_said_about_the_live_login(env, probe):
+    sw = two_accounts(env)
+    assert sw.live_problem() is None
+    sw.refuse_if_revoked()                                  # a healthy login passes
+    codex._PROBE.clear()
+    probe.answer["value"] = {"error": 'failed: 401; body={"code":"token_revoked"}'}
+    assert sw.live_problem() == "revoked"
+    with pytest.raises(SwitchError, match="revoked"):
+        sw.refuse_if_revoked()
+
+
+def test_the_live_problem_is_not_asked_when_probing_is_off(env, probe):
+    from claude_swap import paths
+    from claude_swap.settings import set_setting
+
+    set_setting(paths.get_backup_root(), "usage.codexProbe", "false")
+    sw = two_accounts(env)
+    assert sw.live_problem() is None and probe.calls == []
+
+
+def test_an_api_key_login_has_no_problem_to_report(env, probe):
+    sw = env.sw()
+    env.login(make_apikey_auth())
+    sw.add()
+    assert sw.live_problem() is None and probe.calls == []

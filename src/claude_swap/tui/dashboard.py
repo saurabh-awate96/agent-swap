@@ -26,6 +26,7 @@ from textual.screen import Screen
 from textual.widgets import Footer, ListView, Static
 
 from claude_swap.models import AccountsSnapshot
+from claude_swap.tui.codex_view import CodexPanel, CodexSwitchScreen
 from claude_swap.tui.widgets import AccountItem, AccountsPanel, MenuItem
 
 if TYPE_CHECKING:
@@ -42,6 +43,7 @@ class DashboardScreen(Screen):
     BINDINGS = [
         Binding("s", "open_switch", "Switch accounts"),
         Binding("w", "app.open_watch", "Watch"),
+        Binding("c", "open_codex", "Codex"),
         Binding("escape,left", "menu_back", "Back", show=False),
         Binding("q", "app.quit", "Quit"),
         # Power shortcuts; the menu is the discoverable path.
@@ -60,6 +62,7 @@ class DashboardScreen(Screen):
 
     def compose(self) -> ComposeResult:
         yield AccountsPanel(id="accounts-panel")
+        yield CodexPanel(id="codex-panel")
         yield Static("", id="menu-title")
         yield ListView(id="menu")
         yield Footer()
@@ -78,6 +81,7 @@ class DashboardScreen(Screen):
             ("Watch accounts", "watch"),
             ("Auto-switch view", "auto"),
             ("Add account…", "add-menu"),
+            ("Codex accounts…  (c)", "codex-menu"),
             ("Disable / enable account…", "disable-menu"),
             ("Remove account…", "remove-menu"),
             ("Theme…", "theme-menu"),
@@ -116,6 +120,31 @@ class DashboardScreen(Screen):
             entries.append(
                 (f"{acc.number}  {name}{state}   {action}", f"disable:{acc.number}")
             )
+        entries.append(_BACK)
+        return entries
+
+    def _codex_rows(self) -> list[dict]:
+        return (self.app.codex or {}).get("accounts", [])
+
+    def _codex_entries(self) -> MenuEntries:
+        return [
+            ("Switch Codex account…", "codex-switch"),
+            ("Rotate to the next account", "codex-rotate"),
+            ("Best pick (most quota left)", "codex-best"),
+            ("Sign in to another account…", "codex-signin"),
+            ("Save current login", "codex-save"),
+            ("Check every login now", "codex-check"),
+            ("Disable / enable account…", "codex-disable-menu"),
+            ("Remove account…", "codex-remove-menu"),
+            _BACK,
+        ]
+
+    def _codex_pick_entries(self, prefix: str, with_state: bool) -> MenuEntries:
+        entries: MenuEntries = []
+        for row in self._codex_rows():
+            name = f"{row['alias']} ({row['email']})" if row.get("alias") else (row.get("email") or "(API key)")
+            state = ("  (disabled)   → enable" if row["disabled"] else "   → disable") if with_state else f"  [{row['plan']}]"
+            entries.append((f"{row['slot']}  {name}{state}", f"{prefix}:{row['slot']}"))
         entries.append(_BACK)
         return entries
 
@@ -165,7 +194,30 @@ class DashboardScreen(Screen):
             "add-token": app.action_add_token,
             "quit": app.exit,
         }
-        if action_id == "back":
+        codex = {
+            "codex-switch": self.action_open_codex_switch,
+            "codex-rotate": lambda: app.codex_rotate(None),
+            "codex-best": lambda: app.codex_rotate("best"),
+            "codex-signin": app.codex_sign_in,
+            "codex-save": app.codex_save,
+            "codex-check": app.codex_check,
+        }
+        if action_id in codex:
+            codex[action_id]()
+        elif action_id == "codex-menu":
+            await self._push_menu("codex", self._codex_entries())
+        elif action_id == "codex-disable-menu":
+            await self._push_menu("disable / enable", self._codex_pick_entries("codex-disable", True))
+        elif action_id.startswith("codex-disable:"):
+            app.codex_toggle_disabled(action_id.split(":", 1)[1])
+            await self._pop_menu()
+        elif action_id == "codex-remove-menu":
+            await self._push_menu("remove", self._codex_pick_entries("codex-remove", False))
+        elif action_id.startswith("codex-remove:"):
+            slot = action_id.split(":", 1)[1]
+            row = next((r for r in self._codex_rows() if str(r["slot"]) == slot), {})
+            app.confirm_codex_remove(slot, row.get("email") or "?")
+        elif action_id == "back":
             await self._pop_menu()
         elif action_id == "add-menu":
             await self._push_menu("add account", self._add_entries())
@@ -200,6 +252,14 @@ class DashboardScreen(Screen):
     def action_open_switch(self) -> None:
         if not isinstance(self.app.screen, SwitchScreen):
             self.app.push_screen(SwitchScreen())
+
+    async def action_open_codex(self) -> None:
+        self._menu_stack = self._menu_stack[:1]
+        await self._push_menu("codex", self._codex_entries())
+
+    def action_open_codex_switch(self) -> None:
+        if not isinstance(self.app.screen, CodexSwitchScreen):
+            self.app.push_screen(CodexSwitchScreen())
 
     async def action_menu_back(self) -> None:
         await self._pop_menu()

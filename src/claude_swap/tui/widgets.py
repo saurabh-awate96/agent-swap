@@ -427,6 +427,9 @@ class AccountsPanel(Static):
         if not blocks:
             return Text("no active managed login", style=palette.muted)
         text = Text()
+        if self._show_minis:  # the dashboard: a heading like the Codex panel's, in Claude's colour
+            text.append("CLAUDE CODE", style=f"bold {palette.accent}")
+            text.append("\n")
         previous_multiline = False
         for i, block in enumerate(blocks):
             multiline = "\n" in block.plain

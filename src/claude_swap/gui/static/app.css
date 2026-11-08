@@ -3,13 +3,15 @@
    companion follows the system. */
 :root {
   --bg: #141414; --surface: #1c1c1c; --panel: #262626;
-  --fg: #e8e4de; --muted: #8a8a8a; --accent: #d7875f;
+  --fg: #e8e4de; --muted: #8a8a8a;
+  /* Each product has its own colour; --accent is whichever panel (or dialog) you are in. */
+  --claude: #d7875f; --codex: #7aa2f7; --accent: var(--claude);
   --ok: #87af87; --warn: #d7af5f; --crit: #d75f5f; --track: #3a3a3a;
 }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) {
     --bg: #faf7f2; --surface: #f1ece3; --panel: #e2dbcf;
-    --fg: #2b2723; --muted: #635d55; --accent: #954c2a;
+    --fg: #2b2723; --muted: #635d55; --claude: #954c2a; --codex: #2b5cb8;
     --ok: #3d6b3d; --warn: #795911; --crit: #ad3128; --track: #cec7ba;
   }
 }
@@ -20,7 +22,7 @@ body {
   font: 15px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 }
 header { display: flex; flex-wrap: wrap; gap: 4px 24px; padding: 0 12px; }
-.brand { color: var(--accent); font-weight: bold; }
+.brand { color: var(--fg); font-weight: bold; }
 #conn { padding: 0 12px; margin: 6px 0 0; }
 #conn:empty { display: none; }
 .muted { color: var(--muted); }
@@ -35,7 +37,10 @@ body.busy, body.busy button { cursor: progress; }
 /* Two equal panels. */
 .panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 0 28px; padding: 12px 12px 0; align-items: start; }
 @media (max-width: 600px) { .panels { grid-template-columns: 1fr; padding-left: 4px; padding-right: 4px; } }
-.panel { min-width: 0; padding-bottom: 20px; }
+.panel { min-width: 0; padding-bottom: 20px; border-top: 3px solid var(--accent); padding-top: 6px; }
+.panel.claude { --accent: var(--claude); }
+.panel.codex { --accent: var(--codex); }
+dialog[data-p="codex"] { --accent: var(--codex); }
 .panel h2 {
   display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
   margin: 0; padding: 4px 0; font-size: 1em; color: var(--accent);
@@ -83,7 +88,8 @@ main { padding: 6px 0 0; }
 .badge { margin-left: 12px; color: var(--muted); }
 .row { display: grid; grid-template-columns: 7ch max-content 4ch minmax(0, 1fr); gap: 0 12px; padding-left: 28px; align-items: baseline; }
 .row .label { color: var(--muted); }
-.row > .muted:last-child { overflow-wrap: anywhere; }
+.row > .muted:last-child { overflow-wrap: break-word; }
+.row .wide { grid-column: 3 / span 2; }
 .bar { white-space: pre; }
 .pct { min-width: 4ch; text-align: right; }
 .dim { opacity: 0.6; }

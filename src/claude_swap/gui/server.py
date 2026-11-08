@@ -160,7 +160,7 @@ class GuiServer(ThreadingHTTPServer):
             payload = {"accounts": cx.rows(persist=self.write, probe=True)}
             live = cx.status()
             payload["unsaved"] = (
-                {k: live[k] for k in ("email", "plan", "authMode")}
+                {**{k: live[k] for k in ("email", "plan", "authMode")}, "problem": cx.live_problem()}
                 if live["state"] == "unmanaged" else None
             )
         except ClaudeSwitchError as e:
@@ -413,7 +413,9 @@ class _Handler(BaseHTTPRequestHandler):
     def _codex_add_current(self, body: dict) -> None:
         if body:
             self._fail(400, "BadRequest", "unexpected field")
-        slot, created = self.server.codex().add()
+        cx = self.server.codex()
+        cx.refuse_if_revoked()
+        slot, created = cx.add()
         self.server._codex_rows = None
         self._json(200, {
             "schemaVersion": SCHEMA_VERSION, "ok": True, "number": slot,
@@ -527,12 +529,15 @@ class _Handler(BaseHTTPRequestHandler):
             if binary is None:
                 self._fail(400, "NotInstalled", "Codex (`codex`) was not found on PATH")
             if server.codex_live_unsaved():
-                try:
-                    server.codex().add()
-                except ClaudeSwitchError as e:
-                    self._fail(409, "Unsaved", f"Could not save the Codex login in use first: {e}")
-                server._codex_rows = None
-                saved_first = "Saved the Codex login you were using. "
+                if server.codex().live_problem() in ("revoked", "unauthorized"):
+                    saved_first = "The login in use was revoked, so it was not saved. "
+                else:
+                    try:
+                        server.codex().add()
+                    except ClaudeSwitchError as e:
+                        self._fail(409, "Unsaved", f"Could not save the Codex login in use first: {e}")
+                    server._codex_rows = None
+                    saved_first = "Saved the Codex login you were using. "
             argv = [binary, "login"] + (["--device-auth"] if body.get("device") else [])
 
             def save() -> str:

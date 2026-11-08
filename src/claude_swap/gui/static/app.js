@@ -145,7 +145,8 @@ function bar(pct, line) {
 function usageRow(label, pct, suffix, line, dim, unknown) {
   const row = el("div", null, "row" + (dim ? " dim" : ""));
   row.append(el("span", label, "label"), bar(pct, line));
-  row.append(pct == null ? el("span", unknown || "usage unknown", "muted")
+  // No figure: the note takes the percent and reset columns together, so it never wraps letter by letter.
+  row.append(pct == null ? el("span", unknown || "usage unknown", "muted wide")
                          : el("span", pct.toFixed(0) + "%", "pct " + sev(pct)));
   if (suffix) row.append(el("span", suffix, "muted"));
   return row;
@@ -158,7 +159,12 @@ function cmd(text, onclick, o) {
   b.type = "button";
   b.disabled = !!opts.disabled;
   if (opts.title) b.title = opts.title;
-  b.onclick = (ev) => { ev.stopPropagation(); onclick(ev); };
+  b.onclick = (ev) => {
+    ev.stopPropagation();
+    const panel = ev.target.closest && ev.target.closest(".panel");
+    if (panel) focus = panel.id.replace("panel-", "");
+    onclick(ev);
+  };
   return b;
 }
 
@@ -178,6 +184,7 @@ const dlg = $("dlg");
 
 function ask(opts) {
   return new Promise((resolve) => {
+    dlg.dataset.p = opts.provider || focus;
     $("dlg-title").textContent = opts.title;
     $("dlg-text").textContent = opts.text || "";
     const box = $("dlg-fields");
@@ -467,6 +474,11 @@ function unsavedCard(p, u) {
   const head = header("·", null, u.email, "not saved", false);
   if (u.plan) head.append(el("span", "· " + u.plan, "badge"));
   card.append(head);
+  if (u.problem === "revoked" || u.problem === "unauthorized") {
+    card.append(el("div", "⚠ logged in now, but " + (PROBLEM[u.problem] || PROBLEM.failed), "note warn"));
+    card.append(el("div", "Saving it would only store a dead login, so there is no save button. Use add → account.", "note muted"));
+    return card;
+  }
   card.append(el("div", "· logged in now, but not saved in agent-swap yet", "note muted"));
   if (writable()) {
     const acts = el("div", null, "acts");
@@ -647,7 +659,7 @@ function renderAuto(p, box) {
 function buildPanels() {
   const root = $("panels");
   ["claude", "codex"].forEach((p) => {
-    const panel = el("section", null, "panel");
+    const panel = el("section", null, "panel " + p);
     panel.id = "panel-" + p;
     const h = el("h2");
     h.append(el("span", PROVIDERS[p].title), el("small", "", "muted"));
