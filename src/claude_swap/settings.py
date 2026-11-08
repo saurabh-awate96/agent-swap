@@ -115,9 +115,17 @@ class UsageSettings:
     headers of a 1-output-token Haiku request instead. Each probe is a real,
     if tiny, request against that account's quota, sent at the normal poll
     cadence, so it is opt-in; off leaves such accounts at "usage unavailable".
+
+    ``codex_probe``: Codex's own session files only hold what Codex wrote on
+    this machine, so the live account's reading can be stale or, after a reset,
+    missing. When it is older than five minutes, cswap asks the real
+    ``codex app-server`` (OpenAI's own client, your own login) for the current
+    5h/weekly numbers, at most once per five minutes. Off keeps Codex fully
+    offline from cswap's side.
     """
 
     header_probe: bool = False
+    codex_probe: bool = True
 
 
 _SECTION_DEFAULT_SOURCES = {
@@ -217,6 +225,10 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         SettingSpec(
             "usage", "headerProbe", "header_probe", "bool",
             help="Read setup-token usage from a 1-token Haiku request's rate-limit headers (opt-in: uses quota)",
+        ),
+        SettingSpec(
+            "usage", "codexProbe", "codex_probe", "bool",
+            help="Ask the real codex app-server for the live Codex account's current usage when local files are stale",
         ),
     )
 }
@@ -395,14 +407,17 @@ def load_usage_settings(backup_root: Path) -> UsageSettings:
     default = UsageSettings()
     if not isinstance(section, dict):
         return default
-    header_probe = section.get("headerProbe", default.header_probe)
-    if not isinstance(header_probe, bool):
-        _logger.warning(
-            "settings.json: usage.headerProbe must be true or false, got %r; "
-            "using %r", header_probe, default.header_probe,
-        )
-        return default
-    return UsageSettings(header_probe=header_probe)
+    values = {}
+    for key, field in (("headerProbe", "header_probe"), ("codexProbe", "codex_probe")):
+        value = section.get(key, getattr(default, field))
+        if not isinstance(value, bool):
+            _logger.warning(
+                "settings.json: usage.%s must be true or false, got %r; "
+                "using the defaults", key, value,
+            )
+            return default
+        values[field] = value
+    return UsageSettings(**values)
 
 
 def save_settings(backup_root: Path, settings: AutoSwitchSettings) -> None:

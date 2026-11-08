@@ -27,11 +27,17 @@ A Codex process loads `auth.json` when it starts. A switch affects processes sta
 
 ## Usage numbers
 
-cswap makes no request to OpenAI. Codex records rate-limit snapshots in its own session logs, `sessions/**/rollout-*.jsonl`, as `token_count` events: `primary` is the 5-hour window and `secondary` the weekly one. `cswap codex list` reads the newest snapshot, so an account you have not used lately shows the numbers from its last session, and a window whose reset time has passed shows as reset.
+Switching makes no request to OpenAI. Codex records rate-limit snapshots in its own session logs, `sessions/**/rollout-*.jsonl`, as `token_count` events: `primary` is the 5-hour window and `secondary` the weekly one. `cswap codex list` reads the newest snapshot, so an account you have not used lately shows the numbers from its last session, and a window whose reset time has passed shows as reset.
 
 `switch --strategy best` picks the account with the most quota left by those numbers.
 
-Two limits follow from that. Only usage **on this machine** is recorded, so use from another computer or the Codex app does not show, and the numbers can be lower than OpenAI's. And each reading is credited to the stored account whose id matches the session's `creator_account_id`: sessions of a login cswap has not stored are ignored, never guessed onto another account. A window that has reset since the last reading is shown as unknown in the web dashboard (and as `reset` on the command line), not as 0%.
+### The live account is read from Codex itself
+
+Those files are stale for an account you have not used lately, and after a reset they hold nothing current. For the **live** account only, when its stored reading is older than five minutes or has a window that has reset since, `cswap codex list` and the web dashboard ask the real `codex app-server` for `account/rateLimits/read`. That is OpenAI's own client running with your own login (cswap never calls OpenAI's usage endpoint itself and identifies itself to the client as `agent-swap`), it answers in about a second, and the result is shown as "read from Codex". It is asked at most once every five minutes per process, a failed ask is not retried within that time, and any failure falls back to the local reading. It never switches or rewrites a login. Turn it off with `cswap config set usage.codexProbe false`; then Codex stays fully offline from cswap's side.
+
+Accounts that are not live have no such reading, so they keep showing their last local numbers.
+
+Two limits follow from that. Only usage **on this machine** is recorded, so use from another computer or the Codex app does not show, and the numbers can be lower than OpenAI's (the live reading above is what corrects this for the live account). And each reading is credited to the stored account whose id matches the session's `creator_account_id`: sessions of a login cswap has not stored are ignored, never guessed onto another account. A window that has reset since the last reading is shown as unknown in the web dashboard (and as `reset` on the command line), not as 0%.
 
 ## Not built
 

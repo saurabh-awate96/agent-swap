@@ -75,8 +75,9 @@ class StubCodex:
         self.calls: list[tuple] = []
         self.error: Exception | None = None
 
-    def rows(self, persist=True):
+    def rows(self, persist=True, probe=False):
         self.calls.append(("rows", persist))
+        self.probe = probe
         if self.error is not None:
             raise self.error
         return [{
@@ -433,6 +434,10 @@ class TestCodex:
         assert status == 200
         assert body["accounts"][0]["email"] == "c@example.com"
         assert body["schemaVersion"] == 1
+
+    def test_the_page_asks_for_the_live_reading(self, ro, codex):
+        call(ro, "GET", "/api/codex")
+        assert codex.probe is True
 
     def test_reading_never_writes_while_read_only(self, ro, codex):
         call(ro, "GET", "/api/codex")

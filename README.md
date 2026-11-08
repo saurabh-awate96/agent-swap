@@ -18,7 +18,7 @@ Switch between your accounts without logging out, let it switch for you before y
 
 - **Switch** Claude Code accounts in one command, with no logout. Pick by number, email or alias, or let `--strategy best` choose the one with the most quota left.
 - **Auto-switch** moves you to the next account before the active one hits its 5-hour or weekly limit, with a cooldown so it never flaps. [How the rules work](docs/auto-switch.md)
-- **Codex too.** `cswap codex` switches OpenAI Codex CLI logins the same way, from local files, with no request to OpenAI. [Details](docs/codex.md)
+- **Codex too.** `cswap codex` switches OpenAI Codex CLI logins the same way, from local files. Its own network use is limited to one optional read of the live account's usage through Codex itself. [Details](docs/codex.md)
 - **Two dashboards.** A terminal one (`cswap`) and a web one (`cswap gui`) that look the same: usage bars, reset countdowns, your switch line. [How the web one is secured](docs/gui.md)
 - **Guided setup.** One install line, then `cswap setup` walks you through saving every login you own.
 - **Careful with your logins.** One live copy of each, atomic writes, nothing refreshed in the background for idle accounts. [What it stores and sends](docs/safety.md)
@@ -284,7 +284,7 @@ If the refresh token itself has died (auto-switch quarantines and reports such a
 
 ### OpenAI Codex CLI accounts
 
-`cswap codex` switches the [Codex CLI](https://github.com/openai/codex) login (`~/.codex/auth.json`, or `$CODEX_HOME`). It is separate from your Claude accounts and works entirely from local files: it makes no request to OpenAI, and never runs `codex login` or `codex logout`.
+`cswap codex` switches the [Codex CLI](https://github.com/openai/codex) login (`~/.codex/auth.json`, or `$CODEX_HOME`). It is separate from your Claude accounts and works from local files: switching makes no request to OpenAI, and cswap never runs `codex login` or `codex logout`. To show the live account's current 5h and weekly numbers when its local reading is stale, it asks the real `codex app-server` (OpenAI's own client, your own login) at most once every five minutes; `cswap config set usage.codexProbe false` turns that off.
 
 ```bash
 cswap codex add                    # store the login Codex is using right now

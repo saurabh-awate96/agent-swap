@@ -185,7 +185,11 @@ function codexCard(a) {
     win(u.primary, "5h");
     win(u.secondary, "7d");
     const seen = Date.parse(u.seenAt);
-    if (!isNaN(seen)) card.append(el("div", "└ last seen " + age((now - seen) / 1000) + " · this machine only", "note muted"));
+    if (!isNaN(seen)) {
+      const note = u.live ? "└ read from Codex " + age((now - seen) / 1000)
+                          : "└ last seen " + age((now - seen) / 1000) + " · this machine only";
+      card.append(el("div", note, "note muted"));
+    }
   }
   if (settings && settings.writable) {
     const acts = el("div", null, "acts");
