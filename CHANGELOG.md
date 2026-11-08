@@ -38,6 +38,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 
 ### Fixed
 
+- **The one-line installer works in every locale.** In a Latin-1 locale, macOS `sh` read `$A●` as a variable named `A?` and stopped with `A?: unbound variable`; it is `${A}●` now.
 - Web panel: a Codex plan with no weekly window says so instead of showing no weekly row.
 - Codex usage: the newest reading is found even when a long session ends in one huge line (the scan used to read only the last 256 KB and could fall back to an older session's number). A window that reset since the last reading shows as unknown, not 0%.
 - A revoked Codex login is reported as revoked instead of silently showing stale numbers. The terminal dashboard and the web panel refuse to save a revoked login, which would only store a dead copy, and say to sign in again.

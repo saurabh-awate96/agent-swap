@@ -18,7 +18,7 @@ set -eu
 REPO="${CSWAP_REPO:-https://github.com/saurabh-awate96/agent-swap.git}"
 
 if [ -t 1 ]; then A="$(printf '\033[38;5;173m')"; D="$(printf '\033[2m')"; R="$(printf '\033[0m')"; else A=""; D=""; R=""; fi
-say()  { printf '%s\n' "  $A●$R $*"; }
+say()  { printf '%s\n' "  ${A}●${R} $*"; }
 note() { printf '%s\n' "    $D$*$R"; }
 die()  { printf '%s\n' "  ✗ $*" >&2; exit 1; }
 
