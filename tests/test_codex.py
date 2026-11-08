@@ -1181,3 +1181,12 @@ def test_a_login_about_to_expire_is_not_asked_and_an_api_key_is_skipped(env, ask
     out = {r["slot"]: r["status"] for r in sw.check_all()}
     assert out[1] == "expiring" and out[3] == "apikey" and out[2] == "ok"
     assert all(who != "a@example.com" for who, _ in asked.log)
+
+
+def test_one_slot_can_be_checked_alone(env, asked):
+    sw = two_accounts(env)
+    out = sw.check_all(only=1)
+    assert [r["slot"] for r in out] == [1]
+    assert [who for who, _ in asked.log] == ["a@example.com"]       # the live one was not asked
+    with pytest.raises(codex.AccountNotFoundError):
+        sw.check_all(only=9)

@@ -121,7 +121,7 @@ function resetText(ms) {
 function winLabel(minutes, fallback) {
   if (!minutes) return fallback;
   if (minutes === 300) return "5h";
-  if (minutes === 10080) return "7d";
+  if (minutes === 10080) return "weekly";
   const h = minutes / 60;
   return h < 48 ? Math.round(h) + "h" : Math.round(h / 24) + "d";
 }
@@ -345,8 +345,9 @@ function usageBody(p, card, n) {
     const pace = (w) => (w.aheadOfPace ? "  (ahead of pace)" : "");
     if (u.spend) card.append(usageRow("$$", u.spend.pct, win(u.spend) + "  $" + u.spend.used.toFixed(2) + " / $" + u.spend.limit.toFixed(2), lineAt, dim));
     if (u.fiveHour) card.append(usageRow("5h", u.fiveHour.pct, win(u.fiveHour), lineAt, dim));
-    if (u.sevenDay) card.append(usageRow("7d", u.sevenDay.pct, win(u.sevenDay) + pace(u.sevenDay), weekly, dim));
-    (u.scoped || []).forEach((w) => card.append(usageRow(w.name, w.pct, win(w) + (w.pct >= 100 ? "  (!)" : pace(w)), weekly, dim)));
+    if (u.sevenDay) card.append(usageRow("weekly", u.sevenDay.pct, win(u.sevenDay) + pace(u.sevenDay), weekly, dim));
+    // A per-model window is a weekly limit too: say so, the name alone does not.
+    (u.scoped || []).forEach((w) => card.append(usageRow(w.name, w.pct, "weekly · " + win(w) + (w.pct >= 100 ? "  (!)" : pace(w)), weekly, dim)));
     if (a.usageAgeSeconds != null) card.append(el("div", "└ usage read " + age(a.usageAgeSeconds), "note muted"));
     return;
   }
@@ -363,7 +364,12 @@ function usageBody(p, card, n) {
     else card.append(usageRow(label, w.used_percent, resetText(resetMs), lineAt, !u.live || !!a.problem));
   };
   win(u.primary, "5h");
-  win(u.secondary, "7d");
+  win(u.secondary, "weekly");
+  if (!u.secondary) {
+    const month = u.primary && u.primary.window_minutes >= 20000;
+    card.append(el("div", month ? "· this plan has one " + winLabel(u.primary.window_minutes) + " limit and no weekly limit"
+                                : "· no weekly limit reported for this login", "note muted"));
+  }
   const checked = a.health && Date.parse(a.health.at);
   if (a.health && !isNaN(checked)) {
     const ok = a.health.status === "ok" || a.health.status === "apikey" || a.health.status === "expiring";
@@ -395,6 +401,22 @@ async function editThreshold(p, n) {
   act(PROVIDERS[p].base + "/threshold", { number: n.id, threshold: value }, "threshold");
 }
 
+async function refreshOne(p, n) {
+  if (busy) return;
+  busy = true;
+  working(true);
+  try {
+    const r = await api(PROVIDERS[p].base + "/refresh", { number: n.id }, 90000);
+    r.accounts.forEach((a) => say(PROVIDERS[p].noun + " " + a.id + " " + a.label + ": " + a.status + (a.detail ? " · " + a.detail : ""), a.ok ? "good" : "bad"));
+  } catch (e) {
+    say(PROVIDERS[p].noun + " " + n.id + ": " + e.message, "bad");
+  }
+  busy = false;
+  working(false);
+  lastSig = "";
+  refresh();
+}
+
 const doSwitch = (p, n) => act(PROVIDERS[p].base + "/switch", { number: n.id }, "switch to " + (n.alias || n.email || n.id));
 const doDisable = (p, n) => act(PROVIDERS[p].base + "/disable", { number: n.id, disabled: !n.disabled }, n.disabled ? "enable" : "disable");
 const doRemove = (p, n) => confirmThen({
@@ -403,10 +425,16 @@ const doRemove = (p, n) => confirmThen({
     + (p === "codex" ? "; Codex itself is not touched." : ", with its config backup."),
 }, PROVIDERS[p].base + "/remove", { number: n.id }, "remove");
 
+const lastData = {};  // card key -> what its numbers looked like at the previous redraw
+
 function accountCard(p, a) {
   const n = normalize(p, a);
   const card = el("div", null, "acct" + (n.active ? " active" : "") + (sel[p] === n.id ? " sel" : ""));
   card.dataset.key = p + ":" + n.id;
+  // A card whose usage or login check just changed flashes once (the terminal dashboard does the same).
+  const mine = JSON.stringify([a.usage, a.health, a.problem, a.usageStatus]);
+  if (lastData[card.dataset.key] !== undefined && lastData[card.dataset.key] !== mine) card.classList.add("flash");
+  lastData[card.dataset.key] = mine;
   card.tabIndex = 0;
   card.setAttribute("role", "option");
   card.setAttribute("aria-selected", sel[p] === n.id ? "true" : "false");
@@ -421,6 +449,7 @@ function accountCard(p, a) {
     const lock = loginOpen(), acts = el("div", null, "acts");
     acts.append(
       cmd("switch ⏎", () => doSwitch(p, n), { boxed: true, primary: true, disabled: n.active || lock }),
+      cmd("refresh", () => refreshOne(p, n), { disabled: lock, title: "check just this account  (u)" }),
       cmd(n.disabled ? "enable" : "disable", () => doDisable(p, n), { disabled: lock }),
       cmd("alias", () => editAlias(p, n), { disabled: lock }),
       cmd("threshold", () => editThreshold(p, n), { disabled: lock }),
@@ -701,7 +730,7 @@ function renderKeys() {
   k.append(hint("↑↓", "select"), hint("←→", "panel"));
   if (writable()) {
     k.append(hint("⏎", "switch"), hint("d", "disable"), hint("a", "alias"), hint("t", "threshold"), hint("x", "remove"),
-             hint("r", "rotate"), hint("b", "best"), hint("n", "next"), hint("+", "add"), hint("v", "save login"), hint("g", "auto"), hint("f", "refresh"));
+             hint("r", "rotate"), hint("b", "best"), hint("n", "next"), hint("+", "add"), hint("v", "save login"), hint("g", "auto"), hint("f", "refresh all"), hint("u", "refresh one"));
   }
 }
 
@@ -767,6 +796,7 @@ document.addEventListener("keydown", (e) => {
   if (k === "v") return go(() => saveLogin(p));
   if (k === "g") return go(() => toggleAuto(p, false));
   if (k === "f") return go(refreshAll);
+  if (k === "u" && n) return go(() => refreshOne(p, n));
 });
 
 // -- data -------------------------------------------------------------------------------------------------------

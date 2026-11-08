@@ -643,20 +643,25 @@ class Codex:
         snap = _usage_from_rate_limits(result)
         return ("ok" if snap else "failed"), snap, newer
 
-    def check_all(self) -> list[dict]:
+    def check_all(self, only: int | None = None) -> list[dict]:
         """Check every stored login with the real client and record the result per slot.
 
         The live account is asked as it is; the others through a throwaway home (see above).
         Returns ``[{"slot", "label", "status", "usage"}]`` where status is ok, revoked,
         unauthorized, failed, expiring (not asked, about to refresh on its own) or apikey.
+        ``only`` checks just that slot.
         """
         self._require_file_store()
         _PROBE.clear()
         data = self._load()
+        if only is not None and str(only) not in data["accounts"]:
+            raise AccountNotFoundError(f"No Codex account in slot {only}")
         live_n, live_auth = self._live_slot(data)
         out, found = [], {}
         for key, acct in sorted(data["accounts"].items(), key=lambda kv: int(kv[0])):
             n = int(key)
+            if only is not None and n != only:
+                continue
             if acct["authMode"] == "apikey":
                 out.append({"slot": n, "label": self._label(acct), "status": "apikey", "usage": None})
                 continue

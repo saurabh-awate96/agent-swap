@@ -11,6 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 
 ### Added
 
+- **Refresh one account**: every selected account has a `refresh` button (and `u`) that checks just that account (`/api/<provider>/refresh` takes an optional slot number); a card whose usage or login check just changed flashes once.
 - **Refresh**: a button (and `f`) in the control panel that checks every account of both providers and lists each one's state in the activity log. For Codex it asks the real client about every stored login through a throwaway `CODEX_HOME`, without switching, saves back a token the client refreshed, and keeps `login ok / revoked` with its time on each card.
 - **A sturdier control panel**: a cursor row instead of a wall of buttons (select an account; only it shows actions), a key for every action with a footer of hints, an activity log that stays on screen, a clear stale state when the dashboard stops (requests time out, out-of-order answers are ignored), no rebuild under an open dialog or a click, usage windows named by their real length (`30d` for Codex's go plan, not `5h`), the duplicate organisation tag dropped, and a revoked Codex login reported instead of silently showing stale numbers.
 - **`aswap codex run`**: Codex that follows an account switch. It runs Codex as a child in the same terminal and, when the account is switched from anywhere, reopens it on the new login with `codex resume` of the same conversation. The Codex panel says how many sessions do this and warns about a Codex running outside it. POSIX only.
@@ -38,6 +39,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 
 ### Fixed
 
+- Control panel, weekly limits: a usage row is a grid, so a long reset text wraps inside its own column instead of breaking the row; windows are named `weekly` (not `7d`), per-model windows say `weekly · resets …`, and a Codex plan that reports no weekly window (the `go` plan has one 30-day limit) says so instead of silently showing no weekly row.
 - Codex usage: the newest reading is found even when a long session ends in one huge line (the scan used to read only the last 256 KB and silently fell back to an older session's number). A window that reset since the last reading shows as unknown in the web dashboard, not 0%, and the last-seen line says the numbers cover this machine only.
 - A rotated refresh token survives a malformed refresh response; a non-numeric `expires_in` falls back to an hour.
 - Auto-switch no longer overrides a manual switch made while it was deciding, and sequence.json writes take a lock.

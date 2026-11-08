@@ -371,15 +371,25 @@ class TestRefresh:
 
     def test_codex_check_names_each_login_and_counts_the_ones_needing_attention(self, rw, parts):
         status, body, _ = post(rw, "/api/codex/refresh", {})
-        assert status == 200 and ("check_all",) in parts[1].calls
+        assert status == 200 and ("check_all", None) in parts[1].calls
         assert [(a["id"], a["ok"], a["status"], a["detail"]) for a in body["accounts"]] == [
             ("1", True, "login ok", "5h 11%"), ("2", False, "login revoked: sign in again", "")]
         assert body["message"] == "Checked 2 Codex account(s): 1 need attention."
 
+    def test_one_account_can_be_checked_on_its_own(self, rw, parts):
+        _, body, _ = post(rw, "/api/codex/refresh", {"number": "2"})
+        assert ("check_all", 2) in parts[1].calls
+        assert body["message"].startswith("Checked Codex account 2")
+        status, body, _ = post(rw, "/api/claude/refresh", {"number": "1"})
+        assert status == 200 and [a["id"] for a in body["accounts"]] == ["1"]
+        assert body["message"].startswith("Checked Claude account 1")
+        assert post(rw, "/api/claude/refresh", {"number": "9"})[0] == 400      # no such account
+        assert post(rw, "/api/claude/refresh", {"number": "a@b.co"})[0] == 400  # slot numbers only
+
     def test_it_takes_no_arguments_and_is_refused_read_only(self, rw, ro, parts):
         assert post(rw, "/api/claude/refresh", {"x": 1})[0] == 400
         assert post(ro, "/api/codex/refresh", {})[0] == 403
-        assert ("check_all",) not in parts[1].calls
+        assert ("check_all", None) not in parts[1].calls
 
 
 class TestParity:
