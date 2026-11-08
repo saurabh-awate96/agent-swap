@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 import sys
 import threading
 import time
@@ -9,7 +11,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from claude_swap.gui.runner import AutoRunner, LoginJob
+from claude_swap.gui.runner import AutoRunner, LoginJob, no_browser_env
 from claude_swap.gui.runner import copy_to_clipboard as REAL_COPY  # before conftest stubs the name
 
 
@@ -155,6 +157,15 @@ class TestLoginOutput:
         snap = wait_for(job, "done")
         assert snap["url"] == "https://auth.example.com/device?x=1"   # https only, trailing text cut
         assert snap["code"] == "ABCD-12345"
+
+    @pytest.mark.skipif(os.name != "posix", reason="the launcher stand-ins are shell scripts")
+    def test_a_login_cannot_open_a_browser(self, tmp_path):
+        """Inside the login `open`, `xdg-open` and $BROWSER do nothing, so the link is only copied."""
+        env = no_browser_env(str(tmp_path))
+        out = subprocess.run(["sh", "-c", 'command -v open; open https://x.example/; echo "rc=$? browser=$BROWSER"'],
+                             env=env, capture_output=True, text=True).stdout.split()
+        assert out[0] == str(tmp_path / "open") and out[1:] == ["rc=0", "browser=true"]
+        assert all(os.access(tmp_path / n, os.X_OK) for n in ("open", "xdg-open"))
 
     def test_the_link_is_copied_to_the_clipboard_once(self, _no_real_clipboard):
         job = LoginJob()

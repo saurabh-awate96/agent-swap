@@ -274,7 +274,7 @@ class TestLogin:
     def test_a_codex_login_and_its_save(self, rw, parts):
         assert post(rw, "/api/login", {"kind": "codex"})[0] == 200
         kind, argv, save = parts[3].started[0]
-        assert (kind, argv) == ("codex", ["/opt/bin/codex", "login"])
+        assert (kind, argv) == ("codex", ["/opt/bin/codex", "login", "--device-auth"])  # never opens a browser
         assert save() == "Added Codex slot 2"
         assert ("add",) in parts[1].calls
 

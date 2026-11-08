@@ -94,7 +94,7 @@ The command line `aswap codex add` does not run this check on the current `main`
 
 ## Signing in to another account
 
-- **Web panel:** **+ Add account** → Codex → *Sign in with the browser* opens `codex login` in your browser and saves the result. *Sign in with a code* uses `codex login --device-auth`, and the sign-in banner shows the link and the device code if no browser window opens. *Use an OpenAI API key* is `codex login --with-api-key` with the key on standard input. A revoked login's card offers **Sign in again**.
+- **Web panel:** **+ Add account** → Codex → *Sign in with ChatGPT* runs `codex login --device-auth`, which opens no browser: the link is copied to your clipboard, the banner shows it with the device code (both have a Copy button), and the result is saved when you finish. Paste the link into the browser or profile of the account you want. *Use an OpenAI API key* is `codex login --with-api-key` with the key on standard input. A revoked login's card offers **Sign in again**.
 - **Terminal dashboard:** "Sign in to another account" leaves the dashboard for `codex login` in the same terminal, then comes back.
 - **Command line:** run `aswap codex add` for the login in use, then `codex login` yourself, then `aswap codex add` again.
 

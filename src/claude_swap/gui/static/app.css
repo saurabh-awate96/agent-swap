@@ -190,6 +190,14 @@ section { margin-top: 26px; }
 .toasts { position: fixed; right: 18px; bottom: 18px; display: grid; gap: 8px; z-index: 20; max-width: min(420px, calc(100vw - 36px)); }
 .toast { background: var(--raised); border: 1px solid var(--line-2); border-radius: 10px; padding: 10px 14px; box-shadow: var(--shadow); font-size: 13px; animation: rise 0.18s ease-out; }
 .toast.bad { border-color: color-mix(in srgb, var(--warn) 55%, var(--line)); }
+.toast.magic { position: relative; display: flex; gap: 10px; align-items: baseline; padding: 12px 16px; font-size: 14px; border: 1px solid transparent;
+  background: linear-gradient(var(--raised), var(--raised)) padding-box, linear-gradient(120deg, #a99bff, #2dd4bf) border-box;
+  box-shadow: 0 0 0 1px rgba(169, 155, 255, 0.12), 0 10px 34px rgba(45, 212, 191, 0.18), 0 0 26px rgba(169, 155, 255, 0.22);
+  animation: pop 0.42s cubic-bezier(0.2, 1.4, 0.4, 1); }
+.toast.magic::before { content: "\2726"; font-size: 16px; background: linear-gradient(120deg, #a99bff, #2dd4bf); -webkit-background-clip: text; background-clip: text; color: transparent; animation: twinkle 1.6s ease-in-out 3; }
+@keyframes pop { 0% { transform: translateY(14px) scale(0.92); opacity: 0; } 100% { transform: none; opacity: 1; } }
+@keyframes twinkle { 0%, 100% { transform: scale(1) rotate(0); } 50% { transform: scale(1.35) rotate(18deg); } }
+@media (prefers-reduced-motion: reduce) { .toast.magic, .toast.magic::before { animation: none; } }
 @keyframes rise { from { transform: translateY(6px); opacity: 0; } to { transform: none; opacity: 1; } }
 
 /* -- dialog ---------------------------------------------------------------------------------------------- */

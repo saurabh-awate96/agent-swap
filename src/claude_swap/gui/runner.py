@@ -10,9 +10,11 @@ against the switcher's own pattern.
 from __future__ import annotations
 
 import collections
+import os
 import re
 import shutil
 import subprocess
+import tempfile
 import threading
 import time
 from collections.abc import Callable
@@ -21,6 +23,23 @@ LOGIN_TIMEOUT_S = 300
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 _URL = re.compile(r"https://[^\s\"'<>)]+")
 _CODE = re.compile(r"\b[A-Z0-9]{4}-[A-Z0-9]{4,6}\b")  # a device-login code, like ABCD-1234
+
+
+_LAUNCHERS = ("open", "xdg-open", "sensible-browser", "x-www-browser", "gnome-open", "wslview")
+
+
+def no_browser_env(shim_dir: str) -> dict[str, str]:
+    """An environment in which a login cannot open a browser: it prints its link instead, and the link is
+    copied for the user to paste where they want. Browser launchers found on PATH do nothing.
+
+    shortcut: POSIX only, and a client that calls the OS directly (Codex on macOS) ignores it; Codex signs in by device code.
+    """
+    for name in _LAUNCHERS:
+        path = os.path.join(shim_dir, name)
+        with open(path, "w") as f:
+            f.write("#!/bin/sh\nexit 0\n")
+        os.chmod(path, 0o755)
+    return {**os.environ, "PATH": shim_dir + os.pathsep + os.environ.get("PATH", ""), "BROWSER": "true"}
 
 
 def copy_to_clipboard(text: str) -> bool:
@@ -235,7 +254,7 @@ class LoginJob:
             if self.running():
                 return False
             self._state = {"kind": kind, "state": "running",
-                           "message": "Finish signing in in the browser window that opened."}
+                           "message": "Link ready. Paste it into the browser you want to sign in with."}
         threading.Thread(target=self._run, args=(argv, save, timeout), daemon=True, name="agent-swap-login").start()
         return True
 
@@ -262,9 +281,15 @@ class LoginJob:
             state["code"] = code.group(0)
 
     def _run(self, argv: list[str], save: Callable[[], str], timeout: float) -> None:
+        if os.name != "posix":
+            return self._run_with_env(argv, save, timeout, None)
+        with tempfile.TemporaryDirectory(prefix="agent-swap-login-") as shim:
+            self._run_with_env(argv, save, timeout, no_browser_env(shim))
+
+    def _run_with_env(self, argv: list[str], save: Callable[[], str], timeout: float, env: dict | None) -> None:
         try:
             proc = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                    stderr=subprocess.STDOUT, text=True, errors="replace")
+                                    stderr=subprocess.STDOUT, text=True, errors="replace", env=env)
         except OSError as e:
             self._finish("error", f"Could not start the login: {e.strerror or 'failed'}.")
             return
