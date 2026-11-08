@@ -558,6 +558,27 @@ class Codex:
             self._save(data)
         return n
 
+    def forget_all(self) -> list[int]:
+        """Delete every stored Codex login (for `aswap purge`). Best effort; returns the slots.
+
+        The files go with the backup folder anyway, but on macOS the logins live in the
+        Keychain, which a folder delete does not reach.
+        """
+        try:
+            data = self._load()
+        except ConfigError:
+            return []
+        gone = []
+        for key, acct in data["accounts"].items():
+            try:
+                self._store.delete_account_credentials_strict(f"codex-{key}", acct.get("email") or "")
+            except Exception:
+                continue  # purge never stops on one item
+            with contextlib.suppress(Exception):
+                self._store.delete_previous_backup(f"codex-{key}", acct.get("email") or "")
+            gone.append(int(key))
+        return gone
+
     def set_alias(self, target: str, alias: str | None) -> int:
         """Name a slot (``None`` or blank removes the name)."""
         alias = (alias or "").strip()

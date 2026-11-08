@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# setup-uv used to set this; without it uv picks the newest Python on the runner.
+env:
+  UV_PYTHON: '3.12'
+
 jobs:
   lint:
     runs-on: ubuntu-latest
@@ -13,8 +17,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # uv from PyPI, not from a GitHub release download: astral-sh/setup-uv's
+      # download kept failing with HTTP 504 and blocking every job.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        run: python -m pip install --disable-pip-version-check uv
 
       # Real mistakes only (unused imports and names, syntax errors), in the
       # shipped code; style is not enforced.
@@ -33,10 +43,14 @@ jobs:
       # uv (not pip) so the PEP 735 dev dependency-group — pytest,
       # pytest-asyncio — installs from the committed lockfile, same as local
       # development.
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
+      # uv from PyPI, not from a GitHub release download: astral-sh/setup-uv's
+      # download kept failing with HTTP 504 and blocking every job.
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install uv
+        run: python -m pip install --disable-pip-version-check uv
 
       - name: Install dependencies
         run: uv sync --locked
@@ -50,10 +64,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
+      # uv from PyPI, not from a GitHub release download: astral-sh/setup-uv's
+      # download kept failing with HTTP 504 and blocking every job.
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install uv
+        run: python -m pip install --disable-pip-version-check uv
 
       - name: Install dependencies
         run: uv sync --locked
@@ -72,10 +90,14 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v6
+      # uv from PyPI, not from a GitHub release download: astral-sh/setup-uv's
+      # download kept failing with HTTP 504 and blocking every job.
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
+      - name: Install uv
+        run: python -m pip install --disable-pip-version-check uv
 
       - name: Install dependencies
         run: uv sync --locked

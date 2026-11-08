@@ -7,31 +7,57 @@
 <link rel="stylesheet" href="/app.css">
 </head>
 <body>
-<header>
-  <span class="brand">agent-swap</span>
-  <span id="mode" class="muted"></span>
-  <span id="updated" class="muted"></span>
-  <span id="working" class="on" role="status"></span>
-  <button id="refresh" type="button" class="link primary" title="check every account now  (f)" hidden>refresh</button>
+<header class="top">
+  <div class="brand"><span class="mark" aria-hidden="true"></span>agent-swap</div>
+  <div class="top-right">
+    <span id="mode" class="chip"></span>
+    <span id="updated" class="muted small"></span>
+    <button id="refresh" type="button" class="ghost" title="Check every account now (f)" hidden>↻ Refresh</button>
+    <button id="add" type="button" class="primary" title="Add an account (+)" hidden>+ Add account</button>
+    <button id="help" type="button" class="ghost icon" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts">?</button>
+  </div>
 </header>
-<p id="conn" class="warn" role="alert"></p>
 
-<div id="panels" class="panels"></div>
+<div id="banners" class="banners"></div>
 
-<section id="activity" aria-label="activity">
-  <div class="sub">activity</div>
-  <div id="log" role="log" aria-live="polite"></div>
-</section>
+<main class="page">
+  <section aria-labelledby="now-title">
+    <h1 id="now-title" class="section-title">Active now</h1>
+    <div id="now" class="now"></div>
+  </section>
 
-<footer id="keys" class="keys"></footer>
+  <section aria-labelledby="acc-title">
+    <div class="section-head">
+      <h1 id="acc-title" class="section-title">Accounts</h1>
+      <div id="filters" class="tabs" role="tablist" aria-label="Show"></div>
+    </div>
+    <div class="table" role="table" aria-label="Accounts">
+      <div class="thead" role="row">
+        <span role="columnheader">Account</span>
+        <span role="columnheader">Session</span>
+        <span role="columnheader">Weekly</span>
+        <span role="columnheader">Status</span>
+        <span role="columnheader" class="sr">Actions</span>
+      </div>
+      <div id="rows" role="rowgroup"></div>
+    </div>
+  </section>
+
+  <section class="activity">
+    <button id="activity-toggle" type="button" class="ghost small" aria-expanded="false">Activity</button>
+    <div id="log" role="log" aria-live="polite" hidden></div>
+  </section>
+</main>
+
+<div id="toasts" class="toasts" aria-live="polite"></div>
 
 <dialog id="dlg" aria-labelledby="dlg-title">
   <h2 id="dlg-title"></h2>
   <p id="dlg-text" class="muted"></p>
   <div id="dlg-fields"></div>
   <div class="dlg-actions">
-    <button id="dlg-cancel" type="button" class="btn">cancel</button>
-    <button id="dlg-ok" type="button" class="btn primary">ok</button>
+    <button id="dlg-cancel" type="button" class="ghost">Cancel</button>
+    <button id="dlg-ok" type="button" class="primary">OK</button>
   </div>
 </dialog>
 <script src="/app.js"></script>

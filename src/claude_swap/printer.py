@@ -1,6 +1,6 @@
 """Console output formatting for Claude Swap.
 
-Provides subtle, modern terminal styling with a single warm accent color,
+Provides subtle, modern terminal styling with a single violet accent color,
 dim secondary text, and bold for structure. Inspired by Claude Code's
 restrained aesthetic. Falls back to plain text when colors aren't supported.
 """
@@ -20,13 +20,13 @@ _DIM = "\033[2m"
 
 _PALETTES: dict[str, dict[str, str]] = {
     "dark": {
-        "accent": "\033[38;5;173m",  # warm salmon/terracotta (xterm 173)
+        "accent": "\033[38;5;141m",  # agent-swap violet (xterm 141)
         "muted": "\033[38;5;250m",  # soft gray -- readable, but quieter than normal
         "red": "\033[31m",
         "yellow": "\033[33m",
     },
     "light": {
-        "accent": "\033[38;2;149;76;42m",  # #954c2a burnt sienna
+        "accent": "\033[38;2;91;75;214m",  # #5b4bd6 violet
         "muted": "\033[38;2;99;93;85m",  # #635d55
         "red": "\033[38;2;173;49;40m",  # #ad3128
         "yellow": "\033[38;2;121;89;17m",  # #795911 deep ochre

@@ -62,10 +62,11 @@ class TestCards:
         text = codex_view.codex_mini_text(row(2, pct=(80, 52)), NOW).plain
         assert "\n" not in text and "5h 80%" in text and "7d 52%" in text
 
-    def test_codex_has_its_own_accent(self):
-        dark = type("T", (), {"dark": True, "primary": "#d7875f", "foreground": "#fff", "secondary": "#888",
-                              "success": "#0f0", "warning": "#ff0", "error": "#f00", "variables": {}})()
-        assert codex_view.codex_palette(dark).accent == codex_view.CODEX_ACCENT != Palette.DARK.accent
+    def test_codex_uses_the_app_accent_and_is_told_apart_by_its_dot(self):
+        from claude_swap.tui.theme import CLAUDE_DOT, CODEX_DOT, CSWAP_DARK
+
+        assert codex_view.codex_palette(CSWAP_DARK).accent == Palette.DARK.accent
+        assert CODEX_DOT != CLAUDE_DOT
 
 
 @pytest.fixture
@@ -102,7 +103,7 @@ class TestDashboard:
             await wait_codex(pilot, codex_app)
             panel = codex_app.screen.query_one("#codex-panel")
             text = panel.render().plain
-            assert panel.display and "CODEX" in text
+            assert panel.display and "● Codex" in text
             assert "main (u1@example.com)" in text and "u2@example.com" in text
 
     async def test_an_unsaved_revoked_login_is_flagged_not_offered_for_saving(self, codex_app):
