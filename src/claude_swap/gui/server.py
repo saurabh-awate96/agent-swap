@@ -24,7 +24,7 @@ from importlib import resources
 from urllib.parse import urlsplit
 
 from claude_swap.exceptions import ClaudeSwitchError
-from claude_swap.gui.runner import AutoRunner, LoginJob
+from claude_swap.gui.runner import AutoRunner, CodexAutoRunner, LoginJob
 from claude_swap.json_output import SCHEMA_VERSION, error_envelope
 from claude_swap.settings import load_settings, set_setting, unset_setting
 from claude_swap.tui.data import run_action
@@ -45,7 +45,17 @@ _CONFIG_KEYS = {
 }
 _STRATEGIES = {"next": None, "best": "best", "next-available": "next-available"}
 # Writes that stay possible while a browser login is waiting for the user.
-_DURING_LOGIN = {"/api/auto", "/api/config"}
+_DURING_LOGIN = {"auto", "config"}
+# Both providers expose the same actions under /api/<provider>/<action>. The older
+# Claude-only paths stay as aliases.
+_LEGACY = {
+    "/api/switch": "switch", "/api/rotate": "rotate", "/api/disable": "disable",
+    "/api/alias": "alias", "/api/threshold": "threshold", "/api/remove": "remove",
+    "/api/add-current": "save", "/api/add-token": "token", "/api/login": "login",
+    "/api/auto": "auto", "/api/config": "config",
+}
+_ROUTE = re.compile(r"/api/(claude|codex)/([a-z-]+)")
+_RENAMED = {"add-current": "save", "add-token": "token"}
 
 _ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -79,7 +89,7 @@ class _Reject(Exception):
 class GuiServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, switcher, *, write: bool = False, port: int = 0, codex=None, auto=None, job=None):
+    def __init__(self, switcher, *, write: bool = False, port: int = 0, codex=None, auto=None, job=None, codex_auto=None):
         # 127.0.0.1 only -- never 0.0.0.0 or ::.
         super().__init__(("127.0.0.1", port), _Handler)
         self.switcher = switcher
@@ -90,6 +100,7 @@ class GuiServer(ThreadingHTTPServer):
         self.write_lock = threading.Lock()
         self.auto = auto or AutoRunner(switcher)  # the engine only starts when asked
         self.job = job or LoginJob()
+        self.codex_auto = codex_auto or CodexAutoRunner(self.codex, switcher.backup_dir)
         self.hosts = {
             f"127.0.0.1:{self.server_port}",
             f"localhost:{self.server_port}",
@@ -258,14 +269,14 @@ class _Handler(BaseHTTPRequestHandler):
                     "keepalive": s.keepalive,
                 },
             })
-        elif path == "/api/accounts":
+        elif path in ("/api/accounts", "/api/claude"):
             # The page polls on a timer: unattended, so it never refreshes an idle
             # account's token (same rule as the terminal dashboard).
             payload = self.server.switcher.list_accounts(json_output=True, refresh_idle=False)
             payload["unsaved"] = self.server.unsaved_claude()
             payload["job"] = self.server.job.snapshot()
             self._json(200, payload)
-        elif path == "/api/auto":
+        elif path in ("/api/auto", "/api/claude/auto"):
             s = load_settings(self.server.switcher.backup_dir)
             self._json(200, {
                 "schemaVersion": SCHEMA_VERSION, **self.server.auto.snapshot(),
@@ -275,35 +286,30 @@ class _Handler(BaseHTTPRequestHandler):
                     "intervalSeconds": s.interval_seconds,
                 },
             })
+        elif path == "/api/codex/auto":
+            s = load_settings(self.server.switcher.backup_dir)
+            self._json(200, {
+                "schemaVersion": SCHEMA_VERSION, **self.server.codex_auto.snapshot(),
+                "settings": {"threshold": s.threshold, "intervalSeconds": s.interval_seconds},
+            })
         elif path == "/api/codex":
-            self._json(200, self.server.codex_payload())
+            # The payload is cached; the login state must not be.
+            self._json(200, {**self.server.codex_payload(), "job": self.server.job.snapshot()})
         else:
             self._fail(404, "NotFound", "no such page")
 
     def _post(self) -> None:
         self._check_token()
         if not self.server.write:
-            self._fail(403, "ReadOnly", "start `cswap gui --write` to allow changes")
-        action = {
-            "/api/switch": self._switch,
-            "/api/disable": self._disable,
-            "/api/add-current": self._add_current,
-            "/api/codex/switch": self._codex_switch,
-            "/api/codex/add-current": self._codex_add_current,
-            "/api/codex/rotate": self._codex_rotate,
-            "/api/codex/remove": self._codex_remove,
-            "/api/rotate": self._rotate,
-            "/api/remove": self._remove,
-            "/api/alias": self._alias,
-            "/api/threshold": self._threshold,
-            "/api/add-token": self._add_token,
-            "/api/login": self._login,
-            "/api/auto": self._auto,
-            "/api/config": self._config,
-        }.get(urlsplit(self.path).path)
+            self._fail(403, "ReadOnly", "this page was started with --read-only")
+        path = urlsplit(self.path).path
+        provider, name = self._route(path)
+        self._explicit = provider if _ROUTE.fullmatch(path) else None
+        action = self._handlers(provider).get(name)
         if action is None:
             self._fail(404, "NotFound", "no such endpoint")
-        if self.server.job.running() and urlsplit(self.path).path not in _DURING_LOGIN:
+        self._provider = provider
+        if self.server.job.running() and name not in _DURING_LOGIN:
             self._fail(409, "Busy", "a browser login is in progress; finish or wait for it first")
         body = self._read_body()
         # One write at a time: `run_action` redirects stdout/stdin process-wide.
@@ -313,6 +319,28 @@ class _Handler(BaseHTTPRequestHandler):
             action(body)
         finally:
             self.server.write_lock.release()
+
+    @staticmethod
+    def _route(path: str) -> tuple[str, str]:
+        """``/api/<claude|codex>/<action>`` or a legacy Claude path -> (provider, action)."""
+        m = _ROUTE.fullmatch(path)
+        if m:
+            return m.group(1), _RENAMED.get(m.group(2), m.group(2))
+        return "claude", _LEGACY.get(path, "")
+
+    def _handlers(self, provider: str) -> dict:
+        common = {"login": self._login, "auto": self._auto, "config": self._config}
+        if provider == "claude":
+            return {
+                "switch": self._switch, "rotate": self._rotate, "disable": self._disable,
+                "alias": self._alias, "threshold": self._threshold, "remove": self._remove,
+                "save": self._add_current, "token": self._add_token, **common,
+            }
+        return {
+            "switch": self._codex_switch, "rotate": self._codex_rotate, "disable": self._codex_disable,
+            "alias": self._codex_alias, "threshold": self._codex_threshold, "remove": self._codex_remove,
+            "save": self._codex_add_current, "token": self._codex_token, **common,
+        }
 
     def _read_body(self) -> dict:
         ctype = self.headers.get("Content-Type", "").split(";")[0].strip().lower()
@@ -445,19 +473,35 @@ class _Handler(BaseHTTPRequestHandler):
         )
 
     def _login(self, body: dict) -> None:
-        server, kind = self.server, body.get("kind")
+        """Sign in to another account in the browser, then save it.
+
+        The login in use is saved first when cswap does not have it yet (signing in
+        replaces it), so there is nothing for the user to do beforehand.
+        """
+        server = self.server
+        explicit = getattr(self, "_explicit", None)
+        kind = explicit or body.get("kind")
+        if explicit and body.get("kind", explicit) != explicit:
+            self._fail(400, "BadRequest", "kind does not match the endpoint")
+        body = {k: v for k, v in body.items() if k != "kind"}
+        saved_first = ""
         if kind == "claude":
-            if set(body) - {"kind", "email"}:
+            if set(body) - {"email"}:
                 self._fail(400, "BadRequest", "unexpected field")
-            email = body.get("email")
-            if not isinstance(email, str) or len(email) > 254 or not server.switcher._validate_email(email):
-                self._fail(400, "BadRequest", "enter a valid email address")
-            if server.unsaved_claude() is not None:
-                self._fail(409, "Unsaved", "Save the login you are using now first: signing in replaces it.")
+            email = body.get("email") or None
+            if email is not None and (not isinstance(email, str) or len(email) > 254
+                                      or not server.switcher._validate_email(email)):
+                self._fail(400, "BadRequest", "enter a valid email address, or leave it blank")
             binary = shutil.which("claude")
             if binary is None:
                 self._fail(400, "NotInstalled", "Claude Code (`claude`) was not found on PATH")
-            argv = [binary, "auth", "login", "--email", email]
+            if server.unsaved_claude() is not None:
+                result = run_action(server.switcher.add_account)
+                if not result.ok:
+                    self._fail(409, "Unsaved", "Could not save the login in use first: "
+                               + result.first_line.removeprefix("Error: "))
+                saved_first = "Saved the login you were using. "
+            argv = [binary, "auth", "login"] + (["--email", email] if email else [])
 
             def save() -> str:
                 with server.write_lock:
@@ -466,14 +510,19 @@ class _Handler(BaseHTTPRequestHandler):
                     raise ClaudeSwitchError(result.first_line.removeprefix("Error: "))
                 return result.first_line or "Account saved."
         elif kind == "codex":
-            if set(body) - {"kind"}:
+            if set(body) - {"device"} or not isinstance(body.get("device", False), bool):
                 self._fail(400, "BadRequest", "unexpected field")
-            if server.codex_live_unsaved():
-                self._fail(409, "Unsaved", "Save the Codex login you are using now first: signing in replaces it.")
             binary = shutil.which("codex")
             if binary is None:
                 self._fail(400, "NotInstalled", "Codex (`codex`) was not found on PATH")
-            argv = [binary, "login"]
+            if server.codex_live_unsaved():
+                try:
+                    server.codex().add()
+                except ClaudeSwitchError as e:
+                    self._fail(409, "Unsaved", f"Could not save the Codex login in use first: {e}")
+                server._codex_rows = None
+                saved_first = "Saved the Codex login you were using. "
+            argv = [binary, "login"] + (["--device-auth"] if body.get("device") else [])
 
             def save() -> str:
                 with server.write_lock:
@@ -485,7 +534,10 @@ class _Handler(BaseHTTPRequestHandler):
         if not server.job.start(kind, argv, save):
             self._fail(409, "Busy", "a browser login is already in progress")
         self._json(200, {"schemaVersion": SCHEMA_VERSION, "ok": True,
-                         "message": "Finish signing in in the browser window that opened."})
+                         "message": saved_first + "Finish signing in in the browser window that opened."})
+
+    def _runner(self):
+        return self.server.codex_auto if self._provider == "codex" else self.server.auto
 
     def _auto(self, body: dict) -> None:
         if set(body) - {"action", "dryRun"}:
@@ -493,7 +545,7 @@ class _Handler(BaseHTTPRequestHandler):
         dry, action = body.get("dryRun", False), body.get("action")
         if not isinstance(dry, bool) or action not in ("start", "stop"):
             self._fail(400, "BadRequest", "action must be start or stop")
-        auto = self.server.auto
+        auto = self._runner()
         auto.start(dry_run=dry) if action == "start" else auto.stop()
         message = "Auto-switch stopped." if action == "stop" else (
             "Auto-switch started in dry-run: it only reports." if dry else "Auto-switch started.")
@@ -503,7 +555,9 @@ class _Handler(BaseHTTPRequestHandler):
         if set(body) - {"key", "value"}:
             self._fail(400, "BadRequest", "unexpected field")
         key, value = body.get("key"), body.get("value")
-        if key not in _CONFIG_KEYS:
+        # Codex shares the global line; the rest of the Claude settings do not apply to it.
+        allowed = {"autoswitch.threshold"} if self._provider == "codex" else _CONFIG_KEYS
+        if key not in allowed:
             self._fail(400, "BadRequest", "that setting cannot be changed from here")
         root = self.server.switcher.backup_dir
         if value is None:
@@ -520,13 +574,17 @@ class _Handler(BaseHTTPRequestHandler):
             except ValueError as e:
                 self._fail(400, "BadRequest", str(e))
         self.server.auto.restart()  # an engine in progress picks the new value up
+        self.server.codex_auto.restart()
         self._json(200, {"schemaVersion": SCHEMA_VERSION, "ok": True, "message": "Saved."})
 
+    # -- Codex: the same actions as Claude, on Codex's own roster ---------------------------
+
+    def _codex_done(self, message: str, **extra) -> None:
+        self.server._codex_rows = None
+        self._json(200, {"schemaVersion": SCHEMA_VERSION, "ok": True, "message": message, **extra})
+
     def _codex_rotate(self, body: dict) -> None:
-        strategy = self._strategy(body)
-        if strategy == "next-available":
-            self._fail(400, "BadRequest", "Codex rotation is next or best")
-        slot, changed = self.server.codex().switch(None, strategy=strategy)
+        slot, changed = self.server.codex().switch(None, strategy=self._strategy(body))
         self.server._codex_rows = None
         self._json(200, {
             "schemaVersion": SCHEMA_VERSION, "switched": changed, "to": {"number": slot},
@@ -536,5 +594,37 @@ class _Handler(BaseHTTPRequestHandler):
     def _codex_remove(self, body: dict) -> None:
         number = self._number(body, {"number"})
         slot = self.server.codex().remove(number, yes=True)
-        self.server._codex_rows = None
-        self._json(200, {"schemaVersion": SCHEMA_VERSION, "ok": True, "message": f"Removed Codex slot {slot}"})
+        self._codex_done(f"Removed Codex slot {slot}")
+
+    def _codex_disable(self, body: dict) -> None:
+        number = self._number(body, {"number", "disabled"})
+        disabled = body.get("disabled")
+        if not isinstance(disabled, bool):
+            self._fail(400, "BadRequest", "disabled must be true or false")
+        slot = self.server.codex().set_disabled(number, disabled)
+        self._codex_done(f"{'Disabled' if disabled else 'Enabled'} Codex slot {slot}")
+
+    def _codex_alias(self, body: dict) -> None:
+        number = self._number(body, {"number", "alias"})
+        alias = body.get("alias")
+        if not isinstance(alias, str) or len(alias) > 64:
+            self._fail(400, "BadRequest", "alias must be text of at most 64 characters")
+        slot = self.server.codex().set_alias(number, alias)
+        self._codex_done("Alias saved." if alias.strip() else "Alias removed.", number=slot)
+
+    def _codex_threshold(self, body: dict) -> None:
+        number = self._number(body, {"number", "threshold"})
+        value = body.get("threshold")
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
+            self._fail(400, "BadRequest", "threshold must be a number, or null to clear it")
+        self.server.codex().set_threshold(number, value)
+        self._codex_done("Threshold saved." if value is not None else "Threshold cleared.")
+
+    def _codex_token(self, body: dict) -> None:
+        if set(body) - {"token"}:
+            self._fail(400, "BadRequest", "unexpected field")
+        token = body.get("token")
+        if not isinstance(token, str) or not 8 <= len(token) <= 2048:
+            self._fail(400, "BadRequest", "paste the whole API key")
+        slot, created = self.server.codex().add_from_api_key(token)
+        self._codex_done(f"{'Added' if created else 'Refreshed'} Codex slot {slot} (API key)")

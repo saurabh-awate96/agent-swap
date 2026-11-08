@@ -19,25 +19,27 @@ A small server from the standard library (`http.server`, no new dependency) plus
 
 ## What the page can do
 
+Both providers expose the same actions as `/api/claude/<action>` and `/api/codex/<action>` (`switch`, `rotate`, `disable`, `alias`, `threshold`, `remove`, `save`, `login`, `token`, `auto`, `config`); a test pins that the two sets are equal. The older Claude-only paths (`/api/switch`, `/api/add-current`, ...) still answer.
+
 | Endpoint | Method | Does | Read-only |
 |---|---|---|---|
-| `/api/settings`, `/api/accounts`, `/api/codex`, `/api/auto` | GET | accounts, usage, the auto-switch state and its last events | works |
+| `/api/settings`, `/api/claude`, `/api/codex`, `/api/<provider>/auto` | GET | accounts, usage, the login in use, the auto-switch state and its last events | works |
 | `/api/switch`, `/api/rotate`, `/api/disable`, `/api/remove` | POST | switch to a slot, rotate (`next`, `best`, `next-available`), hold out of rotation, remove | 403 |
 | `/api/alias`, `/api/threshold` | POST | an account's short name and its own switch-away line | 403 |
 | `/api/add-current`, `/api/add-token` | POST | save the login in use; add a setup-token or API key | 403 |
-| `/api/login` | POST | start `claude auth login` or `codex login` in the browser, then save the result | 403 |
+| `/api/<provider>/login` | POST | start `claude auth login [--email]`, `codex login` or `codex login --device-auth` in the browser, then save the result | 403 |
 | `/api/auto`, `/api/config` | POST | start/stop the auto-switch engine; change threshold, weekly line, strategy, keepalive | 403 |
-| `/api/codex/switch`, `/api/codex/rotate`, `/api/codex/remove`, `/api/codex/add-current` | POST | the same for Codex | 403 |
+| `/api/codex/token` | POST | log Codex in with an API key (`codex login --with-api-key`, the key on stdin) and save it | 403 |
 
 Every value is checked on the server and the page never sends anything that could reach a shell:
 
 - Account routes take a slot **number** (digits only), never an email, a path or a command.
-- `/api/config` accepts four keys only (`autoswitch.threshold`, `.weeklyThreshold`, `.strategy`, `.keepalive`); the value goes through the same validation as `cswap config set`.
-- `/api/login` runs one fixed command (`claude auth login --email <address>` or `codex login`), without a shell and with no input; the only variable part is an address checked against the same pattern `cswap add` uses. It is refused while the login in use is not saved yet, because signing in replaces it. While one is open, other changes answer 409 (auto-switch and its settings stay available), the process is stopped after five minutes, and the new login is saved only if it exited cleanly.
+- `config` accepts four keys for Claude (`autoswitch.threshold`, `.weeklyThreshold`, `.strategy`, `.keepalive`) and only `autoswitch.threshold` for Codex; the value goes through the same validation as `cswap config set`.
+- `login` runs one fixed command, without a shell and with no input; the only variable part is an optional address checked against the same pattern `cswap add` uses. Signing in replaces the login in use, so an unsaved one is **saved first** (and the login is refused if that save fails). The command's output is read only for the sign-in link (https only) and the device code, which the page shows if no browser window opened. While one is open, other changes answer 409 (auto-switch and its settings stay available), the process is stopped after five minutes, and the new login is saved only if it exited cleanly.
 - `/api/add-token` takes the token in the request body; it is never logged and is removed from any message sent back.
 - Only one write runs at a time. No endpoint returns a token or credential: the page receives emails, aliases, plans and percentages.
 
-The auto-switch engine started from the page is the same one `cswap auto` runs, in this process: it stops when the dashboard stops. Run auto-switch in one place only.
+The Claude auto-switch started from the page is the same engine `cswap auto` runs, in this process. Codex's is a small engine of the same shape (it reads usage, and at the live account's line moves to the least-used enabled account under its own line, with a five-minute cooldown; a running Codex keeps its account until restarted). Both stop when the dashboard stops. Run auto-switch in one place only.
 
 ## Logins that are not saved yet
 

@@ -260,13 +260,15 @@ Run `cswap` on its own (or `cswap tui`) for the full-screen dashboard: live usag
 
 ### Web control panel (GUI)
 
-Prefer a window to a terminal? `cswap gui` (or `aswap gui`) opens a control panel in your browser, laid out like the terminal dashboard: every Claude account with its 5-hour and 7-day bars, reset countdowns and your switch line, your Codex accounts underneath, and buttons for what the terminal does on keys:
+`cswap gui` (or `aswap gui`) opens a control panel in your browser: **Claude Code on the left, Codex on the right, the same parts in the same order**, in the terminal dashboard's look (usage bars, reset countdowns, your switch line).
 
-- **Switch** an account, **rotate**, pick the **best** one, or the **next available** (skips accounts at their limit). The same for Codex.
-- **Disable / enable**, **remove**, give an account an **alias**, set its own **switch-away line**.
-- **Save current login**: a login in use that cswap has not stored is listed first as `[not saved]` with a save button.
-- **Add account**: opens Claude Code's (or Codex's) sign-in in your browser and saves the result. **Add token** takes a setup-token or API key.
-- **Auto-switch**: start, stop or dry-run it, and change the threshold, weekly line, strategy and keepalive. It runs inside the dashboard, so it stops with it; run auto-switch in one place only.
+Each panel has:
+
+- **logged in now**: the login in use, and whether cswap has it saved (if not it is listed first as `[not saved]` with a save button).
+- **add account…**: opens the sign-in in your browser and saves the result. The login you are using now is saved first if it was not, so nothing is lost. If no window opens, the panel shows the sign-in link (and for Codex **sign in by code…**, the device code to enter). **add token… / add API key…** for the keyless way.
+- **save current login**, and **rotate**, **best**, **next available** (skips accounts at their limit).
+- every account with **switch, disable/enable, alias, threshold, remove**.
+- **auto-switch**: start, stop or dry-run it, last events, and settings. Claude's has threshold, weekly line, strategy and keepalive; Codex's shares the threshold. Each runs inside the dashboard and stops with it; run auto-switch in one place only.
 
 ```bash
 cswap gui                # the control panel
@@ -298,7 +300,10 @@ codex login                        # ...then log in as the next account
 cswap codex add --alias work       # ...and store that one too
 cswap codex list                   # accounts, with the last 5h / weekly usage Codex recorded
 cswap codex switch                 # rotate; or: switch work | switch 1
-cswap codex switch --strategy best # the account with the most quota left
+cswap codex switch --strategy best # the account with the most quota left (or: next-available)
+cswap codex alias 1 work           # a short name; omit it to clear
+cswap codex disable work           # hold out of rotate / best / auto-switch (enable returns it)
+cswap codex threshold work 85      # its own switch-away line (--unset for the global one)
 cswap codex status                 # which stored account is live
 cswap codex remove work
 ```

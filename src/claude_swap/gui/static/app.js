@@ -14,7 +14,7 @@ const STATUS = {
   no_credentials: "no stored credentials",
   unavailable: "usage unavailable",
 };
-const WARN_PCT = 70, CRIT_PCT = 90, BAR_WIDTH = 30, STALE_S = 300;
+const WARN_PCT = 70, CRIT_PCT = 90, BAR_WIDTH = 24, STALE_S = 300;
 const STRATEGIES = ["best", "weekly-first", "consume-first", "priority-consume-first"];
 
 let token = null;
@@ -28,7 +28,7 @@ try {
 if (location.hash) history.replaceState(null, "", location.pathname);
 
 const $ = (id) => document.getElementById(id);
-let settings = null, claude = null, codex = null, auto = null;
+let settings = null;
 let busy = false, lastSig = "", lastJobKey = null;
 
 function el(tag, text, cls) {
@@ -57,7 +57,7 @@ async function api(path, body) {
 }
 
 const writable = () => !!(settings && settings.writable);
-const loginOpen = () => !!(claude && claude.job && claude.job.state === "running");
+const loginOpen = () => [state.claude, state.codex].some((d) => d && d.job && d.job.state === "running");
 const sev = (pct) => (pct >= CRIT_PCT ? "crit" : pct >= WARN_PCT ? "warn" : "ok");
 
 function notice(text, bad) {
@@ -196,7 +196,30 @@ async function confirmThen(opts, path, body) {
   if (await ask(opts)) act(path, body);
 }
 
-// -- Claude --------------------------------------------------------------------------------
+// -- one panel, built twice -----------------------------------------------------------
+//
+// Claude and Codex get the same parts in the same order, from the same code, so they
+// cannot drift apart: login and saving, rotating, the accounts with the same five
+// buttons each, then auto-switch. Only labels and the usage rows differ.
+
+const PROVIDERS = {
+  claude: {
+    title: "claude code", base: "/api/claude", noun: "Claude",
+    tokenButton: "add token…", tokenTitle: "Add from a token or API key",
+    tokenText: "A setup-token (from claude setup-token) or a Console API key. It is stored like any account and never shown again.",
+    tokenFields: [
+      { name: "token", label: "Token or key", type: "password" },
+      { name: "email", label: "Label (optional)", placeholder: "defaults to setup-token-N@token.local" },
+    ],
+  },
+  codex: {
+    title: "codex", base: "/api/codex", noun: "Codex",
+    tokenButton: "add API key…", tokenTitle: "Add an OpenAI API key",
+    tokenText: "The key is handed to `codex login --with-api-key` on its standard input, never on a command line, and stored like any account.",
+    tokenFields: [{ name: "token", label: "OpenAI API key", type: "password" }],
+  },
+};
+const state = { claude: null, codex: null, autoState: { claude: null, codex: null } };
 
 function header(num, alias, email, tag, active) {
   const head = el("div", null, "head");
@@ -211,66 +234,106 @@ function header(num, alias, email, tag, active) {
   return head;
 }
 
-async function editAlias(a) {
-  const v = await ask({
-    title: "Alias for account " + a.number, text: a.email, ok: "save",
-    fields: [{ name: "alias", label: "Short name (blank removes it)", value: a.alias || "" }],
-  });
-  if (v) act("/api/alias", { number: String(a.number), alias: v.alias });
+function normalize(p, a) {
+  if (p === "claude") {
+    return {
+      id: String(a.number), alias: a.alias, email: a.email, active: a.active, disabled: a.disabled,
+      threshold: typeof a.threshold === "number" ? a.threshold : null, raw: a,
+      tag: a.isOrganization ? (a.organizationName || "org") : "personal",
+      extra: a.plan && a.plan.label ? a.plan.label : null,
+    };
+  }
+  return {
+    id: String(a.slot), alias: a.alias, email: a.email, active: a.active, disabled: a.disabled,
+    threshold: typeof a.threshold === "number" ? a.threshold : null, raw: a, tag: a.plan, extra: null,
+  };
 }
 
-async function editThreshold(a) {
-  const v = await ask({
-    title: "Switch-away line for account " + a.number, text: a.email, ok: "save",
-    fields: [{
-      name: "pct", label: "Percent used (50 to 99.9; blank = the global line)", type: "number", step: "0.5",
-      value: typeof a.threshold === "number" ? a.threshold : "",
-    }],
-  });
-  if (!v) return;
-  const raw = v.pct.trim();
-  const value = raw === "" ? null : Number(raw);
-  if (value !== null && Number.isNaN(value)) { notice("Error: that is not a number", true); return; }
-  act("/api/threshold", { number: String(a.number), threshold: value });
+function globalLine(p) {
+  const a = state.autoState[p];
+  return a && a.settings ? a.settings.threshold : null;
 }
 
-function claudeCard(a) {
-  const card = el("div", null, "acct" + (a.active ? " active" : ""));
-  const head = header(a.number, a.alias, a.email, a.isOrganization ? (a.organizationName || "org") : "personal", a.active);
-  if (a.disabled) head.append(el("span", "(disabled)", "badge"));
-  if (typeof a.threshold === "number") head.append(el("span", "th " + a.threshold + "%", "badge"));
-  if (a.plan && a.plan.label) head.append(el("span", "· " + a.plan.label, "badge"));
-  if (a.usageAgeSeconds != null && a.usageAgeSeconds > STALE_S) head.append(el("span", age(a.usageAgeSeconds), "badge"));
-  card.append(head);
-
-  const line = auto && auto.settings ? auto.settings.threshold : (settings ? settings.autoswitch.threshold : null);
-  const weekly = (auto && auto.settings && auto.settings.weeklyThreshold) || line;
-  const u = a.usage;
-  const dim = a.usageAgeSeconds != null && a.usageAgeSeconds > STALE_S;
-  if (a.usageStatus !== "ok" || !u) {
-    const status = a.usageStatus === "ok" ? "unavailable" : a.usageStatus;
-    const text = (a.usageStatus === "api_key" ? "· " : "⚠ ") + (STATUS[status] || status);
-    card.append(el("div", text, "note " + (a.usageStatus === "api_key" ? "muted" : "warn")));
-  } else {
+function usageBody(p, card, n) {
+  const a = n.raw, line = n.threshold != null ? n.threshold : globalLine(p);
+  if (p === "claude") {
+    const weekly = (state.autoState.claude && state.autoState.claude.settings.weeklyThreshold) || line;
+    const u = a.usage, dim = a.usageAgeSeconds != null && a.usageAgeSeconds > STALE_S;
+    if (a.usageStatus !== "ok" || !u) {
+      const status = a.usageStatus === "ok" ? "unavailable" : a.usageStatus;
+      const text = (a.usageStatus === "api_key" ? "· " : "⚠ ") + (STATUS[status] || status);
+      card.append(el("div", text, "note " + (a.usageStatus === "api_key" ? "muted" : "warn")));
+      return;
+    }
     const win = (w) => (w.resetsAt ? resetText(Date.parse(w.resetsAt)) : "");
     const pace = (w) => (w.aheadOfPace ? "  (ahead of pace)" : "");
     if (u.spend) card.append(usageRow("$$", u.spend.pct, win(u.spend) + "  $" + u.spend.used.toFixed(2) + " / $" + u.spend.limit.toFixed(2), line, dim));
     if (u.fiveHour) card.append(usageRow("5h", u.fiveHour.pct, win(u.fiveHour), line, dim));
     if (u.sevenDay) card.append(usageRow("7d", u.sevenDay.pct, win(u.sevenDay) + pace(u.sevenDay), weekly, dim));
     (u.scoped || []).forEach((w) => card.append(usageRow(w.name, w.pct, win(w) + (w.pct >= 100 ? "  (!)" : pace(w)), weekly, dim)));
+    return;
   }
+  const u = a.usage, now = Date.now();
+  if (a.authMode === "apikey") { card.append(el("div", "· API key (no quota)", "note muted")); return; }
+  if (!u) { card.append(el("div", "no usage seen yet (it appears after you use Codex)", "note muted")); return; }
+  // A window that has reset since the reading is unknown (use elsewhere is not in the
+  // local files), not 0%.
+  const win = (w, label) => {
+    if (!w) return;
+    const resetMs = w.resets_at * 1000;
+    if (resetMs <= now) card.append(usageRow(label, null, "", null, true, "reset since last seen"));
+    else card.append(usageRow(label, w.used_percent, resetText(resetMs), line, !u.live));
+  };
+  win(u.primary, "5h");
+  win(u.secondary, "7d");
+  const seen = Date.parse(u.seenAt);
+  if (!isNaN(seen)) {
+    card.append(el("div", u.live ? "└ read from Codex " + age((now - seen) / 1000)
+                                 : "└ last seen " + age((now - seen) / 1000) + " · this machine only", "note muted"));
+  }
+}
+
+async function editAlias(p, n) {
+  const v = await ask({
+    title: "Alias for " + PROVIDERS[p].noun + " account " + n.id, text: n.email, ok: "save",
+    fields: [{ name: "alias", label: "Short name (blank removes it)", value: n.alias || "" }],
+  });
+  if (v) act(PROVIDERS[p].base + "/alias", { number: n.id, alias: v.alias });
+}
+
+async function editThreshold(p, n) {
+  const v = await ask({
+    title: "Switch-away line for " + PROVIDERS[p].noun + " account " + n.id, text: n.email, ok: "save",
+    fields: [{ name: "pct", label: "Percent used (50 to 99.9; blank = the global line)", type: "number", step: "0.5", value: n.threshold == null ? "" : n.threshold }],
+  });
+  if (!v) return;
+  const raw = v.pct.trim(), value = raw === "" ? null : Number(raw);
+  if (value !== null && Number.isNaN(value)) { notice("Error: that is not a number", true); return; }
+  act(PROVIDERS[p].base + "/threshold", { number: n.id, threshold: value });
+}
+
+function accountCard(p, a) {
+  const n = normalize(p, a), cfg = PROVIDERS[p];
+  const card = el("div", null, "acct" + (n.active ? " active" : ""));
+  const head = header(n.id, n.alias, n.email, n.tag, n.active);
+  if (n.disabled) head.append(el("span", "(disabled)", "badge"));
+  if (n.threshold != null) head.append(el("span", "th " + n.threshold + "%", "badge"));
+  if (n.extra) head.append(el("span", "· " + n.extra, "badge"));
+  if (p === "claude" && a.usageAgeSeconds != null && a.usageAgeSeconds > STALE_S) head.append(el("span", age(a.usageAgeSeconds), "badge"));
+  card.append(head);
+  usageBody(p, card, n);
   if (writable()) {
-    const n = String(a.number), lock = loginOpen();
-    const acts = el("div", null, "acts");
+    const lock = loginOpen(), acts = el("div", null, "acts");
     acts.append(
-      button("switch", () => act("/api/switch", { number: n }), { primary: true, disabled: a.active || lock }),
-      button(a.disabled ? "enable" : "disable", () => act("/api/disable", { number: n, disabled: !a.disabled }), { disabled: lock }),
-      button("alias", () => editAlias(a), { disabled: lock }),
-      button("threshold", () => editThreshold(a), { disabled: lock }),
+      button("switch", () => act(cfg.base + "/switch", { number: n.id }), { primary: true, disabled: n.active || lock }),
+      button(n.disabled ? "enable" : "disable", () => act(cfg.base + "/disable", { number: n.id, disabled: !n.disabled }), { disabled: lock }),
+      button("alias", () => editAlias(p, n), { disabled: lock }),
+      button("threshold", () => editThreshold(p, n), { disabled: lock }),
       button("remove", () => confirmThen({
-        title: "Remove account " + n, ok: "remove", danger: true,
-        text: "Remove " + a.email + "? Its stored credentials and config backup are deleted.",
-      }, "/api/remove", { number: n }), { danger: true, disabled: lock }),
+        title: "Remove " + cfg.noun + " account " + n.id, ok: "remove", danger: true,
+        text: "Remove " + (n.email || "this API-key login") + "? Its stored copy is deleted"
+          + (p === "codex" ? "; Codex itself is not touched." : ", with its config backup."),
+      }, cfg.base + "/remove", { number: n.id }), { danger: true, disabled: lock }),
     );
     card.append(acts);
   }
@@ -278,7 +341,7 @@ function claudeCard(a) {
 }
 
 // The login the CLI is using right now, when cswap has not saved it.
-function unsavedCard(u, kind) {
+function unsavedCard(p, u) {
   const card = el("div", null, "acct");
   const head = header("·", null, u.email, "not saved", false);
   if (u.plan) head.append(el("span", "· " + u.plan, "badge"));
@@ -286,84 +349,96 @@ function unsavedCard(u, kind) {
   card.append(el("div", "· logged in now, but not saved in cswap yet", "note muted"));
   if (writable()) {
     const acts = el("div", null, "acts");
-    acts.append(button("save", () => act(kind === "codex" ? "/api/codex/add-current" : "/api/add-current", {}),
-                       { primary: true, disabled: loginOpen() }));
+    acts.append(button("save", () => act(PROVIDERS[p].base + "/save", {}), { primary: true, disabled: loginOpen() }));
     card.append(acts);
   } else {
-    const cmd = kind === "codex" ? "cswap codex add" : "cswap add";
-    card.append(el("div", "save it with: " + cmd, "note muted"));
+    card.append(el("div", "save it with: " + (p === "codex" ? "cswap codex add" : "cswap add"), "note muted"));
   }
   return card;
 }
 
-function claudeTools() {
-  const box = $("claude-tools");
-  box.replaceChildren();
-  box.hidden = !writable();
-  if (!writable()) return;
-  const lock = loginOpen(), unsaved = !!(claude && claude.unsaved);
-  box.append(
-    button("rotate", () => act("/api/rotate", { strategy: "next" }), { disabled: lock, title: "switch to the next account" }),
-    button("best", () => act("/api/rotate", { strategy: "best" }), { disabled: lock, title: "the account with the most quota left" }),
-    button("next available", () => act("/api/rotate", { strategy: "next-available" }), { disabled: lock, title: "next account that is not at its limit" }),
+function toolsFor(p) {
+  const cfg = PROVIDERS[p], lock = loginOpen(), data = state[p], unsaved = !!(data && data.unsaved);
+  const login = [
+    button("add account…", async () => {
+      if (p === "claude") {
+        const v = await ask({
+          title: "Log in to another Claude account", ok: "open sign-in",
+          text: "Opens Claude Code's sign-in in your browser. The login you are using now is saved first if it is not saved yet, so nothing is lost.",
+          fields: [{ name: "email", label: "Email to pre-fill (optional)", placeholder: "you@example.com" }],
+        });
+        if (v) act(cfg.base + "/login", v.email.trim() ? { email: v.email.trim() } : {});
+      } else if (await ask({
+        title: "Log in to another Codex account", ok: "open sign-in",
+        text: "Opens Codex's sign-in in your browser. The login you are using now is saved first if it is not saved yet. Running Codex sessions keep their account until restarted.",
+      })) act(cfg.base + "/login", {});
+    }, { primary: true, disabled: lock }),
+  ];
+  if (p === "codex") {
+    login.push(button("sign in by code…", async () => {
+      if (await ask({
+        title: "Sign in to Codex with a code", ok: "start",
+        text: "For a machine without a browser, or when the browser does not open: Codex prints a link and a code to enter there. They appear here.",
+      })) act(cfg.base + "/login", { device: true });
+    }, { disabled: lock }));
+  }
+  login.push(
     button("save current login", async () => {
       if (await ask({
-        title: "Save current login", ok: "save",
-        text: "Back up the current Claude Code login as a managed account? If it is already managed, its stored credentials are refreshed in place.",
-      })) act("/api/add-current", {});
+        title: "Save current " + cfg.noun + " login", ok: "save",
+        text: "Back up the " + cfg.noun + " login in use as a managed account. If it is already managed, its stored copy is refreshed in place.",
+      })) act(cfg.base + "/save", {});
     }, { primary: unsaved, disabled: lock }),
-    button("add account…", async () => {
-      const v = await ask({
-        title: "Add an account", ok: "sign in",
-        text: "Opens Claude Code's sign-in for this address in your browser. Your current login is replaced only once you finish signing in, so it must already be saved.",
-        fields: [{ name: "email", label: "Email of the account to add", placeholder: "you@example.com" }],
-      });
-      if (v) act("/api/login", { kind: "claude", email: v.email.trim() });
-    }, { disabled: lock || unsaved, title: unsaved ? "save the current login first" : "" }),
-    button("add token…", async () => {
-      const v = await ask({
-        title: "Add from a token or API key", ok: "add",
-        text: "A setup-token (from claude setup-token) or a Console API key. It is stored like any account and never shown again.",
-        fields: [
-          { name: "token", label: "Token or key", type: "password" },
-          { name: "email", label: "Label (optional)", placeholder: "defaults to setup-token-N@token.local" },
-        ],
-      });
+    button(cfg.tokenButton, async () => {
+      const v = await ask({ title: cfg.tokenTitle, ok: "add", text: cfg.tokenText, fields: cfg.tokenFields });
       if (!v) return;
       const body = { token: v.token.trim() };
-      if (v.email.trim()) body.email = v.email.trim();
-      act("/api/add-token", body);
+      if (v.email && v.email.trim()) body.email = v.email.trim();
+      act(cfg.base + "/token", body);
     }, { disabled: lock }),
   );
+  const rotate = [
+    button("rotate", () => act(cfg.base + "/rotate", { strategy: "next" }), { disabled: lock, title: "switch to the next account" }),
+    button("best", () => act(cfg.base + "/rotate", { strategy: "best" }), { disabled: lock, title: "the account with the most quota left" }),
+    button("next available", () => act(cfg.base + "/rotate", { strategy: "next-available" }), { disabled: lock, title: "next account that is not at its limit" }),
+  ];
+  return { login, rotate };
 }
 
-// -- auto-switch -------------------------------------------------------------------------------
+// -- auto-switch, per panel ----------------------------------------------------------------------
 
-async function editAutoSettings() {
-  const s = auto.settings;
-  const v = await ask({
-    title: "Auto-switch settings", ok: "save",
-    text: "Takes effect at once; a running auto-switch restarts with the new values.",
-    fields: [
-      { name: "threshold", label: "Switch away at (percent used)", type: "number", step: "0.5", value: s.threshold },
+async function editAutoSettings(p) {
+  const a = state.autoState[p], s = a.settings;
+  const fields = [{ name: "threshold", label: "Switch away at (percent used)", type: "number", step: "0.5", value: s.threshold }];
+  if (p === "claude") {
+    fields.push(
       { name: "weekly", label: "Weekly line (blank = same as above)", type: "number", step: "0.5", value: s.weeklyThreshold == null ? "" : s.weeklyThreshold },
       { name: "strategy", label: "Strategy", type: "select", options: STRATEGIES, value: s.strategy },
       { name: "keepalive", label: "Keepalive: one tiny real request per idle account (uses a little quota)", type: "checkbox", value: s.keepalive },
-    ],
+    );
+  }
+  const v = await ask({
+    title: PROVIDERS[p].noun + " auto-switch settings", ok: "save",
+    text: p === "codex" ? "The line is shared with Claude's. Takes effect at once; a running auto-switch restarts."
+                        : "Takes effect at once; a running auto-switch restarts with the new values.",
+    fields,
   });
   if (!v) return;
-  const threshold = Number(v.threshold), weekly = v.weekly.trim() === "" ? null : Number(v.weekly);
+  const threshold = Number(v.threshold);
+  const weekly = p === "claude" ? (v.weekly.trim() === "" ? null : Number(v.weekly)) : null;
   if (Number.isNaN(threshold) || Number.isNaN(weekly)) { notice("Error: a line must be a number", true); return; }
   const changes = [];
   if (threshold !== s.threshold) changes.push(["autoswitch.threshold", threshold]);
-  if (weekly !== s.weeklyThreshold) changes.push(["autoswitch.weeklyThreshold", weekly]);
-  if (v.strategy !== s.strategy) changes.push(["autoswitch.strategy", v.strategy]);
-  if (v.keepalive !== s.keepalive) changes.push(["autoswitch.keepalive", v.keepalive]);
+  if (p === "claude") {
+    if (weekly !== s.weeklyThreshold) changes.push(["autoswitch.weeklyThreshold", weekly]);
+    if (v.strategy !== s.strategy) changes.push(["autoswitch.strategy", v.strategy]);
+    if (v.keepalive !== s.keepalive) changes.push(["autoswitch.keepalive", v.keepalive]);
+  }
   if (!changes.length) return;
   busy = true;
   try {
-    for (const [key, value] of changes) await api("/api/config", { key, value });
-    notice("Saved." + (auto.running ? " Auto-switch restarted with the new values." : ""));
+    for (const [key, value] of changes) await api(PROVIDERS[p].base + "/config", { key, value });
+    notice("Saved." + (a.running ? " Auto-switch restarted with the new values." : ""));
   } catch (e) {
     notice("Error: " + e.message, true);
   }
@@ -372,130 +447,132 @@ async function editAutoSettings() {
   refresh();
 }
 
-function renderAuto() {
-  if (!auto) return;
-  $("auto-panel").hidden = false;
-  const state = $("auto-state");
-  state.replaceChildren(auto.running
-    ? el("span", "● running" + (auto.dryRun ? " (dry run: it only reports)" : ""), "on")
+function renderAuto(p, box) {
+  const a = state.autoState[p];
+  box.replaceChildren();
+  if (!a) return;
+  const head = el("div", null, "section-head sub");
+  head.append(el("span", "auto-switch"), a.running
+    ? el("span", "● running" + (a.dryRun ? " (dry run: it only reports)" : ""), "on")
     : el("span", "stopped", "muted"));
-  const tools = $("auto-tools");
-  tools.replaceChildren();
+  box.append(head);
   if (writable()) {
-    if (auto.running) {
-      tools.append(button("stop", () => act("/api/auto", { action: "stop" }), { danger: true }));
+    const tools = el("div", null, "tools");
+    if (a.running) {
+      tools.append(button("stop", () => act(PROVIDERS[p].base + "/auto", { action: "stop" }), { danger: true }));
     } else {
       tools.append(
-        button("start", () => act("/api/auto", { action: "start" }), { primary: true }),
-        button("start (dry run)", () => act("/api/auto", { action: "start", dryRun: true }), { title: "decide and report, never switch" }),
+        button("start", () => act(PROVIDERS[p].base + "/auto", { action: "start" }), { primary: true }),
+        button("start (dry run)", () => act(PROVIDERS[p].base + "/auto", { action: "start", dryRun: true }), { title: "decide and report, never switch" }),
       );
     }
-    tools.append(button("settings", editAutoSettings));
+    tools.append(button("settings", () => editAutoSettings(p)));
+    box.append(tools);
   }
-  const s = auto.settings;
-  $("auto-summary").textContent = "threshold " + s.threshold + "%  ·  weekly " +
-    (s.weeklyThreshold == null ? "same" : s.weeklyThreshold + "%") + "  ·  strategy " + s.strategy +
-    "  ·  keepalive " + (s.keepalive ? "on" : "off") + "  ·  every " + Math.round(s.intervalSeconds) + "s";
-  const log = $("auto-log");
-  log.replaceChildren();
-  const events = auto.events.filter((e) => e.kind !== "poll").slice(-8);
-  if (!events.length) log.append(el("div", auto.running ? "watching… nothing to report yet" : "no events", "muted"));
+  const s = a.settings;
+  box.append(el("div", p === "claude"
+    ? "threshold " + s.threshold + "%  ·  weekly " + (s.weeklyThreshold == null ? "same" : s.weeklyThreshold + "%") +
+      "  ·  strategy " + s.strategy + "  ·  keepalive " + (s.keepalive ? "on" : "off") + "  ·  every " + Math.round(s.intervalSeconds) + "s"
+    : "threshold " + s.threshold + "%  ·  every " + Math.round(s.intervalSeconds) + "s  ·  a running Codex keeps its account until restarted",
+    "note muted"));
+  const log = el("div", null, "log");
+  const events = a.events.filter((e) => e.kind !== "poll").slice(-8);
+  if (!events.length) log.append(el("div", a.running ? "watching… nothing to report yet" : "no events", "muted"));
   events.forEach((e) => {
-    const row = el("div");
-    const cls = e.kind === "switch" ? "on" : e.kind === "error" || e.kind === "account-quarantined" ? "warn" : "muted";
+    const row = el("div"), cls = e.kind === "switch" ? "on" : e.kind === "error" || e.kind === "account-quarantined" ? "warn" : "muted";
     row.append(el("span", e.ts, "t"), el("span", e.text, cls));
     log.append(row);
   });
+  box.append(log);
 }
 
-// -- Codex ----------------------------------------------------------------------------------------
+// -- the panel and the page --------------------------------------------------------------------------
 
-function codexCard(a) {
-  const card = el("div", null, "acct" + (a.active ? " active" : ""));
-  card.append(header(a.slot, a.alias, a.email, a.plan, a.active));
-  const u = a.usage, now = Date.now();
-  if (a.authMode === "apikey") {
-    card.append(el("div", "· API key (no quota)", "note muted"));
-  } else if (!u) {
-    card.append(el("div", "no usage seen yet (it appears after you use Codex)", "note muted"));
-  } else {
-    // A window that has reset since the reading is unknown (use elsewhere is not in
-    // the local files), not 0%.
-    const win = (w, label) => {
-      if (!w) return;
-      const resetMs = w.resets_at * 1000;
-      if (resetMs <= now) card.append(usageRow(label, null, "", null, true, "reset since last seen"));
-      else card.append(usageRow(label, w.used_percent, resetText(resetMs), null, !u.live));
-    };
-    win(u.primary, "5h");
-    win(u.secondary, "7d");
-    const seen = Date.parse(u.seenAt);
-    if (!isNaN(seen)) {
-      const note = u.live ? "└ read from Codex " + age((now - seen) / 1000)
-                          : "└ last seen " + age((now - seen) / 1000) + " · this machine only";
-      card.append(el("div", note, "note muted"));
-    }
-  }
-  if (writable()) {
-    const n = String(a.slot), lock = loginOpen();
-    const acts = el("div", null, "acts");
-    acts.append(
-      button("switch", () => act("/api/codex/switch", { number: n }), { primary: true, disabled: a.active || lock }),
-      button("remove", () => confirmThen({
-        title: "Remove Codex slot " + n, ok: "remove", danger: true,
-        text: "Remove " + (a.email || "this API-key login") + " from cswap? Its stored copy is deleted; Codex itself is not touched.",
-      }, "/api/codex/remove", { number: n }), { danger: true, disabled: lock }),
-    );
-    card.append(acts);
-  }
-  return card;
+function buildPanels() {
+  const root = $("panels");
+  ["claude", "codex"].forEach((p) => {
+    const panel = el("section", null, "panel");
+    panel.id = "panel-" + p;
+    panel.append(el("h2", PROVIDERS[p].title));
+    ["state", "progress", "login", "rotate", "accounts", "auto"].forEach((part) => {
+      const d = el(part === "accounts" ? "main" : "div", null, part === "login" || part === "rotate" ? "tools" : part);
+      d.dataset.part = part;
+      panel.append(d);
+    });
+    root.append(panel);
+  });
 }
 
-function codexTools() {
-  const box = $("codex-tools");
+const part = (p, name) => document.querySelector("#panel-" + p + " [data-part=" + name + "]");
+
+function liveName(p) {
+  const data = state[p];
+  if (!data) return "";
+  if (data.unsaved) return data.unsaved.email + " (not saved yet)";
+  const live = data.accounts.find((a) => a.active);
+  return live ? live.email + " (saved)" : "";
+}
+
+// A link to the sign-in page, only ever an https one (the server already filters, this is the second check).
+function isHttps(u) {
+  try { return new URL(u).protocol === "https:"; } catch (e) { return false; }
+}
+
+function renderProgress(p) {
+  const box = part(p, "progress"), job = state[p] && state[p].job;
   box.replaceChildren();
-  box.hidden = !writable();
-  if (!writable()) return;
-  const lock = loginOpen(), unsaved = !!(codex && codex.unsaved);
-  box.append(
-    button("rotate", () => act("/api/codex/rotate", { strategy: "next" }), { disabled: lock }),
-    button("best", () => act("/api/codex/rotate", { strategy: "best" }), { disabled: lock, title: "the account with the most quota left" }),
-    button("save current login", () => act("/api/codex/add-current", {}), { primary: unsaved, disabled: lock }),
-    button("add account…", () => confirmThen({
-      title: "Add a Codex account", ok: "sign in",
-      text: "Opens Codex's sign-in in your browser. Your current Codex login is replaced only once you finish, so it must already be saved. Running Codex sessions keep their account until restarted.",
-    }, "/api/login", { kind: "codex" }), { disabled: lock || unsaved, title: unsaved ? "save the current login first" : "" }),
-  );
+  box.className = "progress";
+  if (!job || job.kind !== p || job.state !== "running") { box.hidden = true; return; }
+  box.hidden = false;
+  box.append(el("div", "● " + job.message));
+  if (job.url && isHttps(job.url)) {
+    const link = el("a", job.url);
+    link.href = job.url; link.target = "_blank"; link.rel = "noopener noreferrer";
+    const row = el("div", "If no window opened, go to ");
+    row.append(link);
+    box.append(row);
+  }
+  if (job.code) { const row = el("div", "Enter this code there: "); row.append(el("span", job.code, "code")); box.append(row); }
 }
 
-// -- the page ------------------------------------------------------------------------------------------
+function renderPanel(p) {
+  const data = state[p], cfg = PROVIDERS[p];
+  if (!data) return;
+  const st = part(p, "state");
+  st.replaceChildren();
+  st.className = "state muted";
+  if (p === "codex" && data.installed === false && !data.accounts.length) {
+    st.append(document.createTextNode("Codex is not installed (`codex` was not found on PATH)."));
+  } else {
+    const who = liveName(p);
+    st.append(document.createTextNode("logged in now: "), el("b", who || "no login found"));
+  }
+  renderProgress(p);
+  const tools = toolsFor(p);
+  [["login", tools.login], ["rotate", tools.rotate]].forEach(([name, buttons]) => {
+    const box = part(p, name);
+    box.replaceChildren(...(writable() ? buttons : []));
+    box.hidden = !writable();
+  });
+  const cards = data.accounts.map((a) => accountCard(p, a));
+  if (data.unsaved) cards.unshift(unsavedCard(p, data.unsaved));
+  const main = part(p, "accounts");
+  main.replaceChildren(...cards);
+  if (data.error) main.prepend(el("p", data.error, "warn"));
+  if (!cards.length) main.append(el("p", "No " + cfg.noun + " accounts yet." + (writable() ? " Use “add account” above." : ""), "muted"));
+  renderAuto(p, part(p, "auto"));
+}
 
 function trackJob(job) {
   const key = job ? job.kind + "|" + job.state + "|" + job.message : "";
-  $("job").textContent = job && job.state === "running" ? "● " + job.message : "";
   if (job && job.state !== "running" && key !== lastJobKey) notice(job.message, job.state === "error");
   lastJobKey = key;
 }
 
 function render() {
-  if (claude) {
-    const cards = claude.accounts.map(claudeCard);
-    if (claude.unsaved) cards.unshift(unsavedCard(claude.unsaved, "claude"));
-    const main = $("accounts");
-    main.replaceChildren(...cards);
-    if (!cards.length) main.append(el("p", "No accounts yet. Run cswap onboard in a terminal.", "muted"));
-    claudeTools();
-    trackJob(claude.job);
-  }
-  renderAuto();
-  if (codex && (codex.accounts.length || codex.unsaved || codex.error || (writable() && codex.installed))) {
-    $("codex").hidden = false;
-    $("codex-note").textContent = codex.error || "";
-    const cards = codex.accounts.map(codexCard);
-    if (codex.unsaved) cards.unshift(unsavedCard(codex.unsaved, "codex"));
-    $("codex-accounts").replaceChildren(...cards);
-    codexTools();
-  }
+  renderPanel("claude");
+  renderPanel("codex");
+  trackJob((state.claude && state.claude.job) || (state.codex && state.codex.job));
 }
 
 function showConnection(ok, e) {
@@ -508,9 +585,10 @@ function showConnection(ok, e) {
 
 async function refresh() {
   try {
-    claude = await api("/api/accounts");
-    codex = await api("/api/codex");
-    auto = await api("/api/auto");
+    const [claude, codex, ac, ax] = await Promise.all([
+      api("/api/claude"), api("/api/codex"), api("/api/claude/auto"), api("/api/codex/auto"),
+    ]);
+    state.claude = claude; state.codex = codex; state.autoState = { claude: ac, codex: ax };
   } catch (e) {
     showConnection(false, e);
     return;
@@ -518,8 +596,8 @@ async function refresh() {
   showConnection(true);
   $("updated").textContent = "updated " + new Date().toLocaleTimeString([], { hour12: false });
   // Skip identical data: a rebuild mid-click would swallow the click. Reset countdowns
-  // still move, so a minute-old picture is redrawn anyway.
-  const sig = JSON.stringify([claude, codex, auto, Math.floor(Date.now() / 30000)]);
+  // still move, so a half-minute-old picture is redrawn anyway.
+  const sig = JSON.stringify([state, Math.floor(Date.now() / 30000)]);
   if (sig === lastSig) return;
   lastSig = sig;
   render();
@@ -540,6 +618,7 @@ async function start() {
     return;
   }
   $("mode").textContent = writable() ? "· can change accounts" : "· read-only";
+  buildPanels();
   loop();
 }
 

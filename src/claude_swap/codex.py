@@ -518,14 +518,83 @@ class Codex:
             else:
                 self._capture(n, live, auth)
             if alias:
-                taken = {a.get("alias") for k, a in data["accounts"].items() if k != str(n)}
-                if alias.isdigit() or "@" in alias or alias in taken:
-                    raise SwitchError(f"Alias {alias!r} is not usable (numeric, an email, or already taken)")
+                self._check_alias(data, n, alias)
                 data["accounts"][str(n)]["alias"] = alias
             data["activeAccountNumber"] = n
             self._save(data)
         self._log.info(f"Codex slot {n} {'added' if created else 'refreshed'}")
         return n, created
+
+    @staticmethod
+    def _check_alias(data: dict, n: int, alias: str) -> None:
+        taken = {a.get("alias") for k, a in data["accounts"].items() if k != str(n)}
+        if not alias or len(alias) > 64 or alias.isdigit() or "@" in alias or alias in taken:
+            raise SwitchError(f"Alias {alias!r} is not usable (empty, numeric, an email, or already taken)")
+
+    def _edit(self, target: str, change) -> int:
+        """Apply ``change(account_dict)`` to one slot under the roster lock. Returns the slot."""
+        self._require_file_store()
+        with self._locked(codex_lock=False):
+            data = self._load()
+            n = self._resolve(data, target)
+            change(data, data["accounts"][str(n)], n)
+            self._save(data)
+        return n
+
+    def set_alias(self, target: str, alias: str | None) -> int:
+        """Name a slot (``None`` or blank removes the name)."""
+        alias = (alias or "").strip()
+
+        def change(data, acct, n):
+            if alias:
+                self._check_alias(data, n, alias)
+                acct["alias"] = alias
+            else:
+                acct.pop("alias", None)
+        return self._edit(target, change)
+
+    def set_disabled(self, target: str, disabled: bool) -> int:
+        """Hold a slot out of rotate / best / auto-switch (an explicit switch still works)."""
+        def change(data, acct, n):
+            if disabled:
+                acct["disabled"] = True
+            else:
+                acct.pop("disabled", None)
+        return self._edit(target, change)
+
+    def set_threshold(self, target: str, pct: float | None) -> int:
+        """A slot's own switch-away line for auto-switch (``None`` = the global one)."""
+        if pct is not None:
+            if isinstance(pct, bool) or not isinstance(pct, (int, float)) or not 50 <= pct <= 99.9:
+                raise ConfigError("threshold must be between 50 and 99.9")
+
+        def change(data, acct, n):
+            if pct is None:
+                acct.pop("threshold", None)
+            else:
+                acct["threshold"] = float(pct)
+        return self._edit(target, change)
+
+    def add_from_api_key(self, key: str, alias: str | None = None):
+        """Log Codex in with an API key (the key goes to `codex login` on stdin, never argv), then store it.
+
+        Replaces the live login, so an unsaved one is refused first.
+        """
+        if not key or len(key) > 2048 or "\n" in key.strip():
+            raise ConfigError("paste a single API key")
+        if self.status().get("state") == "unmanaged":
+            raise SwitchError("The live Codex login is not saved yet; save it first (cswap codex add).")
+        binary = shutil.which("codex")
+        if binary is None:
+            raise ConfigError("Codex (`codex`) was not found on PATH")
+        try:
+            done = subprocess.run([binary, "login", "--with-api-key"], input=key.strip() + "\n",
+                                  text=True, capture_output=True, timeout=60)
+        except (OSError, subprocess.TimeoutExpired):
+            raise SwitchError("`codex login --with-api-key` did not finish") from None
+        if done.returncode != 0:
+            raise SwitchError(f"`codex login --with-api-key` failed (exit {done.returncode})")
+        return self.add(alias=alias)
 
     def _refresh_usage(self, data: dict) -> bool:
         """Fold the newest rollout snapshot per slot into ``data``. True if it changed."""
@@ -611,6 +680,8 @@ class Codex:
                 "plan": a["plan"],
                 "authMode": a["authMode"],
                 "active": int(n) == active,
+                "disabled": bool(a.get("disabled")),
+                "threshold": a.get("threshold"),
                 "usage": a.get("usage"),
             }
             for n, a in sorted(data["accounts"].items(), key=lambda kv: int(kv[0]))
@@ -619,19 +690,21 @@ class Codex:
     def _choose(self, data: dict, target: str | None, strategy: str | None) -> int:
         if target:
             return self._resolve(data, target)
+        now = time.time()
+        usable = {
+            int(n): a for n, a in data["accounts"].items()
+            if a["authMode"] != "apikey" and not a.get("disabled")
+        }
         if strategy == "best":
-            now = time.time()
-            load = {
-                int(n): load_percent(a.get("usage"), now)
-                for n, a in data["accounts"].items()
-                if a["authMode"] != "apikey"
-            }
+            load = {n: load_percent(a.get("usage"), now) for n, a in usable.items()}
             load = {n: p for n, p in load.items() if p is not None}
             if load:
                 return min(load, key=lambda n: (load[n], n))
         active = data["activeAccountNumber"]
-        order = [n for n in data["sequence"] if data["accounts"][str(n)]["authMode"] != "apikey"]
+        order = [n for n in data["sequence"] if n in usable]
         others = [n for n in order if n != active]
+        if strategy == "next-available":  # skip slots whose last reading is at the limit
+            others = [n for n in others if (load_percent(usable[n].get("usage"), now) or 0) < 100]
         if not others:
             raise SwitchError("There is no other Codex account to rotate to")
         after = [n for n in others if active is not None and n > active]

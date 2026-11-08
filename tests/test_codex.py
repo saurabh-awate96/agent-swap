@@ -974,3 +974,108 @@ class TestReadRateLimits:
     def test_no_codex_installed_yields_nothing(self, monkeypatch):
         monkeypatch.setattr(shutil, "which", lambda name: None)
         assert REAL_READ_RATE_LIMITS(budget=1) is None
+
+
+# --- parity with the Claude side: alias, disable, threshold, next-available, API key ----
+
+
+def test_alias_is_set_renamed_cleared_and_refused_when_taken(env):
+    sw = two_accounts(env)
+    assert sw.set_alias("1", "work") == 1
+    assert {r["slot"]: r["alias"] for r in sw.rows()}[1] == "work"
+    assert sw.set_alias("work", "home") == 1
+    with pytest.raises(SwitchError):
+        sw.set_alias("2", "home")          # taken
+    for bad in ("7", "a@b.co", "x" * 65):
+        with pytest.raises(SwitchError):
+            sw.set_alias("2", bad)
+    sw.set_alias("1", "")
+    assert {r["slot"]: r["alias"] for r in sw.rows()}[1] == ""
+
+
+def test_a_disabled_slot_is_skipped_by_rotate_and_best_but_still_switchable_by_name(env):
+    sw = two_accounts(env)                       # live B (2)
+    rollout(env, "a", ("user-A", "acct-A"), [(iso_now(1), limits(window(5), window(5, 10080)))])
+    sw.set_disabled("1", True)
+    assert {r["slot"]: r["disabled"] for r in sw.rows()} == {1: True, 2: False}
+    for strategy in (None, "best", "next-available"):
+        with pytest.raises(SwitchError):
+            sw.switch(strategy=strategy)          # nothing else to rotate to
+    assert sw.switch("1") == (1, True)            # an explicit switch still works
+    sw.set_disabled("1", False)
+    assert sw.switch(strategy="best")[0] in (1, 2)
+
+
+def test_next_available_skips_a_slot_at_its_limit(env):
+    sw = env.sw()
+    for who in (A, B, C):
+        env.login(make_auth(**who))
+        sw.add()                                  # live C (3)
+    rollout(env, "a", ("user-A", "acct-A"), [(iso_now(1), limits(window(100), window(100, 10080)))])
+    assert sw.switch(strategy="next-available")[0] == 2   # rotation would land on 1, which is at its limit
+
+
+def test_threshold_is_stored_validated_and_cleared(env):
+    sw = two_accounts(env)
+    sw.set_threshold("2", 85)
+    assert {r["slot"]: r["threshold"] for r in sw.rows()}[2] == 85.0
+    for bad in (10, 100, "80", True):
+        with pytest.raises(ConfigError):
+            sw.set_threshold("2", bad)
+    sw.set_threshold("2", None)
+    assert {r["slot"]: r["threshold"] for r in sw.rows()}[2] is None
+
+
+@pytest.fixture
+def fake_login(tmp_path, monkeypatch):
+    """A stand-in `codex` whose `login --with-api-key` writes an API-key auth.json."""
+    home = os.environ["CODEX_HOME"]
+    script = tmp_path / "bin" / "codex"
+    script.parent.mkdir()
+    script.write_text(textwrap.dedent(f"""\
+        #!{sys.executable}
+        import json, sys
+        if sys.argv[1:] == ["login", "--with-api-key"]:
+            key = sys.stdin.read().strip()
+            open({home!r} + "/auth.json", "w").write(json.dumps({{"OPENAI_API_KEY": key, "auth_mode": "apikey", "tokens": None}}, indent=2))
+            sys.exit(0)
+        sys.exit(2)
+    """))
+    script.chmod(script.stat().st_mode | stat.S_IXUSR)
+    monkeypatch.setenv("PATH", f"{script.parent}{os.pathsep}{os.environ['PATH']}")
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in client is a POSIX script")
+def test_an_api_key_login_goes_through_stdin_and_is_stored(env, fake_login):
+    sw = two_accounts(env)
+    slot, created = sw.add_from_api_key("sk-test-key-1234567890")
+    assert created and slot == 3
+    assert {r["slot"]: r["authMode"] for r in sw.rows()}[3] == "apikey"
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="the stand-in client is a POSIX script")
+def test_an_api_key_login_is_refused_while_the_live_login_is_unsaved(env, fake_login):
+    sw = two_accounts(env)
+    env.login(make_auth(**C))                      # a login cswap has not stored
+    with pytest.raises(SwitchError):
+        sw.add_from_api_key("sk-test-key-1234567890")
+    assert "sk-test" not in env.live.read_text()
+
+
+def test_a_bad_api_key_is_refused_before_anything_runs(env):
+    sw = two_accounts(env)
+    for bad in ("", "a\nb", "x" * 3000):
+        with pytest.raises(ConfigError):
+            sw.add_from_api_key(bad)
+
+
+def test_cli_alias_disable_enable_threshold(env, capsys):
+    two_accounts(env)
+    for argv in (["alias", "1", "work"], ["disable", "work"], ["enable", "work"],
+                 ["threshold", "work", "85"], ["threshold", "work", "--unset"], ["alias", "work"]):
+        cli._codex_command(argv)
+    out = capsys.readouterr().out
+    for word in ("Alias set", "Disabled", "Enabled", "Threshold saved", "Threshold cleared", "Alias cleared"):
+        assert word in out
+    with pytest.raises(SystemExit):
+        cli._codex_command(["threshold", "1"])        # neither a percent nor --unset

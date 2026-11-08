@@ -88,13 +88,13 @@ class StubJob:
 def parts(tmp_path):
     stub = FullStub(tmp_path)
     stub.live = None  # the live login is saved, unless a test says otherwise
-    return stub, StubCodex(), StubAuto(), StubJob()
+    return stub, StubCodex(), StubAuto(), StubJob(), StubAuto()
 
 
 @pytest.fixture
 def rw(parts):
-    stub, codex, auto, job = parts
-    server = GuiServer(stub, write=True, codex=codex, auto=auto, job=job)
+    stub, codex, auto, job, codex_auto = parts
+    server = GuiServer(stub, write=True, codex=codex, auto=auto, job=job, codex_auto=codex_auto)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield server
     server.shutdown()
@@ -103,8 +103,8 @@ def rw(parts):
 
 @pytest.fixture
 def ro(parts):
-    stub, codex, auto, job = parts
-    server = GuiServer(stub, write=False, codex=codex, auto=auto, job=job)
+    stub, codex, auto, job, codex_auto = parts
+    server = GuiServer(stub, write=False, codex=codex, auto=auto, job=job, codex_auto=codex_auto)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     yield server
     server.shutdown()
@@ -237,15 +237,30 @@ class TestLogin:
         assert kind == "claude"
         assert argv == ["/opt/bin/claude", "auth", "login", "--email", "me@example.com"]
 
-    @pytest.mark.parametrize("email", [None, 5, "not an email", "a@b.co\n--flag", "x" * 300])
+    @pytest.mark.parametrize("email", [5, "not an email", "a@b.co\n--flag", "x" * 300])
     def test_an_invalid_email_never_starts_a_login(self, rw, parts, email):
         assert post(rw, "/api/login", {"kind": "claude", "email": email})[0] == 400
         assert parts[3].started == []
 
-    def test_an_unsaved_live_login_blocks_it_because_signing_in_replaces_it(self, rw, parts):
+    def test_the_email_is_optional(self, rw, parts):
+        assert post(rw, "/api/claude/login", {})[0] == 200
+        assert parts[3].started[0][1] == ["/opt/bin/claude", "auth", "login"]
+
+    def test_an_unsaved_login_in_use_is_saved_first_for_the_user(self, rw, parts):
         parts[0].live = ("me@example.com", "")
-        status, body, _ = post(rw, "/api/login", {"kind": "claude", "email": "me@example.com"})
-        assert status == 409 and "Save the login" in body["error"]["message"]
+        status, body, _ = post(rw, "/api/claude/login", {"email": "new@example.com"})
+        assert status == 200 and body["message"].startswith("Saved the login you were using")
+        assert ("add",) in parts[0].calls and len(parts[3].started) == 1
+
+    def test_if_that_first_save_fails_no_login_starts(self, rw, parts):
+        parts[0].live = ("me@example.com", "")
+
+        def refuse():
+            raise ClaudeSwitchError("identity mismatch")
+
+        parts[0].add_account = refuse
+        status, body, _ = post(rw, "/api/claude/login", {})
+        assert status == 409 and "identity mismatch" in body["error"]["message"]
         assert parts[3].started == []
 
     def test_saving_the_new_login_happens_under_the_write_lock(self, rw, parts):
@@ -263,10 +278,16 @@ class TestLogin:
         assert save() == "Added Codex slot 2"
         assert ("add",) in parts[1].calls
 
-    def test_an_unsaved_codex_login_blocks_it(self, rw, parts):
+    def test_an_unsaved_codex_login_is_saved_first_too(self, rw, parts):
         parts[1].state = "unmanaged"
-        assert post(rw, "/api/login", {"kind": "codex"})[0] == 409
-        assert parts[3].started == []
+        status, body, _ = post(rw, "/api/codex/login", {})
+        assert status == 200 and "Saved the Codex login" in body["message"]
+        assert ("add",) in parts[1].calls and len(parts[3].started) == 1
+
+    def test_a_code_login_uses_the_device_flow(self, rw, parts):
+        assert post(rw, "/api/codex/login", {"device": True})[0] == 200
+        assert parts[3].started[0][1] == ["/opt/bin/codex", "login", "--device-auth"]
+        assert post(rw, "/api/codex/login", {"device": "yes"})[0] == 400
 
     def test_missing_binaries_and_unknown_kinds(self, rw, parts, monkeypatch):
         assert post(rw, "/api/login", {"kind": "shell", "email": "me@example.com"})[0] == 400
@@ -300,8 +321,9 @@ class TestCodexControls:
     def test_rotate_and_best(self, rw, parts):
         assert post(rw, "/api/codex/rotate", {})[0] == 200
         assert post(rw, "/api/codex/rotate", {"strategy": "best"})[0] == 200
-        assert post(rw, "/api/codex/rotate", {"strategy": "next-available"})[0] == 400
-        assert [c for c in parts[1].calls if c[0] == "switch"] == [("switch", None), ("switch", None)]
+        assert post(rw, "/api/codex/rotate", {"strategy": "next-available"})[0] == 200
+        assert parts[1].last_strategy == "next-available"
+        assert post(rw, "/api/codex/rotate", {"strategy": "rm"})[0] == 400
 
     def test_remove_takes_a_slot_number(self, rw, parts):
         assert post(rw, "/api/codex/remove", {"number": "1"})[0] == 200
@@ -337,3 +359,66 @@ class TestCommand:
         monkeypatch.setattr(cli, "_guard_root", lambda switcher: None)
         cli._gui_command(argv + ["--no-open"])
         assert seen["write"] is write
+
+
+class TestParity:
+    """Claude and Codex are two equal panels: the same actions, under the same names."""
+
+    def test_both_providers_expose_exactly_the_same_actions(self, rw):
+        from claude_swap.gui.server import _Handler
+
+        handler = _Handler.__new__(_Handler)
+        handler.server = rw
+        claude, codex = (set(handler._handlers(p)) for p in ("claude", "codex"))
+        assert claude == codex == {"switch", "rotate", "disable", "alias", "threshold", "remove",
+                                   "save", "login", "token", "auto", "config"}
+
+    def test_the_old_claude_paths_still_answer(self, rw, parts):
+        assert post(rw, "/api/switch", {"number": "2"})[0] == 200
+        assert post(rw, "/api/claude/switch", {"number": "2"})[0] == 200
+        assert post(rw, "/api/claude/add-current", {})[0] == 200   # the old name for save
+        assert post(rw, "/api/claude/nope", {})[0] == 404
+
+    def test_the_state_is_readable_per_provider(self, ro):
+        assert call(ro, "GET", "/api/claude")[0] == 200
+        status, body, _ = call(ro, "GET", "/api/codex/auto")
+        assert status == 200 and set(body["settings"]) == {"threshold", "intervalSeconds"}
+
+
+class TestCodexParityRoutes:
+    def test_disable_alias_threshold_and_api_key(self, rw, parts):
+        codex = parts[1]
+        assert post(rw, "/api/codex/disable", {"number": "1", "disabled": True})[0] == 200
+        assert post(rw, "/api/codex/alias", {"number": "1", "alias": "work"})[0] == 200
+        assert post(rw, "/api/codex/threshold", {"number": "1", "threshold": 80})[0] == 200
+        assert post(rw, "/api/codex/threshold", {"number": "1", "threshold": None})[0] == 200
+        assert post(rw, "/api/codex/token", {"token": "sk-test-key-1234567890"})[0] == 200
+        assert [c for c in codex.calls if c[0] != "rows"] == [
+            ("disable", "1", True), ("alias", "1", "work"), ("threshold", "1", 80),
+            ("threshold", "1", None), ("apikey",)]
+
+    @pytest.mark.parametrize("path,body", [
+        ("/api/codex/disable", {"number": "1", "disabled": "yes"}),
+        ("/api/codex/alias", {"number": "1", "alias": 5}),
+        ("/api/codex/alias", {"number": "1", "alias": "x" * 65}),
+        ("/api/codex/threshold", {"number": "1", "threshold": "80"}),
+        ("/api/codex/threshold", {"number": "1", "threshold": True}),
+        ("/api/codex/token", {"token": "short"}),
+        ("/api/codex/token", {"token": "x" * 20, "extra": 1}),
+        ("/api/codex/disable", {"number": "a@b.co", "disabled": True}),
+    ])
+    def test_bad_values_are_refused(self, rw, parts, path, body):
+        before = list(parts[1].calls)
+        assert post(rw, path, body)[0] == 400
+        assert parts[1].calls == before
+
+    def test_codex_auto_switch_is_its_own_engine(self, rw, parts):
+        assert post(rw, "/api/codex/auto", {"action": "start", "dryRun": True})[0] == 200
+        assert parts[4].calls == [("start", True)] and parts[2].calls == []   # not the Claude engine
+        assert post(rw, "/api/auto", {"action": "start"})[0] == 200
+        assert parts[2].calls == [("start", False)]
+
+    def test_codex_only_shares_the_global_threshold(self, rw, parts):
+        assert post(rw, "/api/codex/config", {"key": "autoswitch.threshold", "value": 80})[0] == 200
+        assert post(rw, "/api/codex/config", {"key": "autoswitch.keepalive", "value": True})[0] == 400
+        assert parts[4].calls == [("restart",)]

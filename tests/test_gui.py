@@ -95,7 +95,24 @@ class StubCodex:
 
     def switch(self, target=None, strategy=None, force=False):
         self.calls.append(("switch", target))
+        self.last_strategy = strategy
         return (int(target) if target else 2), True
+
+    def set_disabled(self, target, disabled):
+        self.calls.append(("disable", target, disabled))
+        return int(target)
+
+    def set_alias(self, target, alias):
+        self.calls.append(("alias", target, alias))
+        return int(target)
+
+    def set_threshold(self, target, pct):
+        self.calls.append(("threshold", target, pct))
+        return int(target)
+
+    def add_from_api_key(self, key, alias=None):
+        self.calls.append(("apikey",))
+        return 3, True
 
     def remove(self, target, yes=False):
         self.calls.append(("remove", target, yes))

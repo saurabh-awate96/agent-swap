@@ -8,34 +8,14 @@
 </head>
 <body>
 <header>
-  <span class="muted">watching all accounts</span>
+  <span class="brand">agent-swap</span>
   <span id="mode" class="muted"></span>
   <span id="updated" class="muted"></span>
 </header>
 <p id="conn" class="warn" role="alert"></p>
 <p id="notice" class="muted" role="status"></p>
-<p id="job" class="on" role="status"></p>
 
-<section>
-  <div class="section-head"><span class="muted">claude</span></div>
-  <div id="claude-tools" class="tools" hidden></div>
-  <main id="accounts" aria-live="polite"></main>
-</section>
-
-<section id="auto-panel" hidden>
-  <div class="section-head"><span class="muted">auto-switch</span><span id="auto-state"></span></div>
-  <div id="auto-tools" class="tools"></div>
-  <div id="auto-summary" class="note muted"></div>
-  <div id="auto-log" class="log"></div>
-  <p class="note muted">It runs only while this page's server (<code>aswap gui</code>) is running. Run it in one place: not here and also <code>cswap auto</code> or the menu bar.</p>
-</section>
-
-<section id="codex" hidden>
-  <div class="section-head"><span class="muted">codex</span></div>
-  <div id="codex-tools" class="tools" hidden></div>
-  <p id="codex-note" class="muted"></p>
-  <main id="codex-accounts" aria-live="polite"></main>
-</section>
+<div id="panels" class="panels"></div>
 
 <dialog id="dlg" aria-labelledby="dlg-title">
   <h2 id="dlg-title"></h2>
