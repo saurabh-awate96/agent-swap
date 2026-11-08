@@ -539,7 +539,8 @@ class _Handler(BaseHTTPRequestHandler):
                         self._fail(409, "Unsaved", f"Could not save the Codex login in use first: {e}")
                     server._codex_rows = None
                     saved_first = "Saved the Codex login you were using. "
-            argv = [binary, "login"] + (["--device-auth"] if body.get("device") else [])
+            # Always by device code: it never opens a browser (the plain login does, through the OS, and that cannot be stopped).
+            argv = [binary, "login", "--device-auth"]
 
             def save() -> str:
                 with server.write_lock:
@@ -551,7 +552,7 @@ class _Handler(BaseHTTPRequestHandler):
         if not server.job.start(kind, argv, save):
             self._fail(409, "Busy", "a browser login is already in progress")
         self._json(200, {"schemaVersion": SCHEMA_VERSION, "ok": True,
-                         "message": saved_first + "Finish signing in in the browser window that opened."})
+                         "message": saved_first + "Link ready. Paste it into the browser you want to sign in with."})
 
     @staticmethod
     def _window_name(minutes) -> str:

@@ -7,6 +7,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 
 ### Added
 
+- **Sign-in never opens a browser.** It used to open a tab in whichever browser was default, often the wrong profile. Now the link is copied with a toast ("Link copied for you. Paste it in the browser you want to sign in with.") and you paste it where you want. Claude's login runs with the browser launchers disabled; Codex's sign-in is the device-code flow (link + code, each with a Copy button).
 - **A logo** (`assets/logo.svg`): two agents passing each other, one violet and one teal. It is the page icon and sits in the top bar and at the top of the README.
 - **Sign-in link on your clipboard.** When a Codex or Claude sign-in prints its link, agent-swap copies it and a toast says so, so you can paste it into the browser profile of the account you want. The banner also has **Copy link**, and the device code has a **Copy code** button.
 - **Codex accounts** with `aswap codex`: `add`, `list`, `switch` (rotate, a named account, `--strategy best|next-available`), `remove`, `status`, `alias`, `disable`/`enable`, `threshold`, and `run`. Switching reads and writes local files only. [docs/codex.md](docs/codex.md)

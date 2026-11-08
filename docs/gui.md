@@ -53,8 +53,8 @@ One table for both products, with filter tabs **All · Claude Code · Codex** (k
 
 **+ Add account** opens one dialog, grouped by product.
 
-- **Claude Code**: *Sign in with the browser* (an optional email pre-fills it; the login in use is saved first), *Save the login in use*, and *Use a token or API key*.
-- **Codex**: *Sign in with the browser* (the login in use is saved first, unless OpenAI revoked it), *Sign in with a code* (device login, for a machine without a browser), *Save the login in use* (disabled while the login in use is revoked), and *Use an OpenAI API key* (handed to `codex` on standard input).
+- **Claude Code**: *Sign in with Claude* (an optional email pre-fills it; the login in use is saved first; no browser is opened, the link is copied for you), *Save the login in use*, and *Use a token or API key*.
+- **Codex**: *Sign in with ChatGPT* (a device-code login that opens no browser; the login in use is saved first, unless OpenAI revoked it), *Save the login in use* (disabled while the login in use is revoked), and *Use an OpenAI API key* (handed to `codex` on standard input).
 
 While a sign-in is open, a banner shows the product, the message, **Open the sign-in page** and **Copy link** when the client printed a link, and the device code with a **Copy code** button. The moment the link appears it is also copied to your clipboard (by the dashboard process, with `pbcopy`, `wl-copy`, `xclip`, `xsel` or `clip`, whichever exists) and a toast says so, so you can paste it into the browser profile of the account you want to sign in with. If no clipboard tool exists the toast tells you to use **Copy link**.
 
@@ -122,7 +122,7 @@ Both providers expose the same actions under `/api/claude/<action>` and `/api/co
 | `/api/<provider>/auto` | POST | start, stop or dry-run the auto-switch engine | 403 |
 | `/api/<provider>/config` | POST | change the auto-switch settings | 403 |
 
-The sign-in starts `claude auth login [--email]` for Claude, and `codex login` or `codex login --device-auth` for Codex. An API key is `codex login --with-api-key` with the key on standard input.
+The sign-in starts `claude auth login [--email]` for Claude, and `codex login --device-auth` for Codex. Neither opens a browser on its own: the login runs with `open`, `xdg-open` and `$BROWSER` replaced by no-ops (POSIX), and Codex's device flow never opens one, so a sign-in cannot land in the wrong browser profile; the link is copied and the toast says so. An API key is `codex login --with-api-key` with the key on standard input.
 
 ### What each value is checked against
 

@@ -224,13 +224,13 @@ function statusPill(m) {
 
 // -- doing things --------------------------------------------------------------------------------------------
 
-function say(text, bad) {
+function say(text, bad, flair) {
   log.push({ ts: clock(), text: String(text), bad: !!bad });
   if (log.length > 30) log.shift();
   renderLog();
-  const t = el("div", String(text), "toast" + (bad ? " bad" : ""));
+  const t = el("div", String(text), "toast" + (bad ? " bad" : "") + (flair ? " " + flair : ""));
   $("toasts").append(t);
-  setTimeout(() => t.remove(), bad ? 7000 : 4000);
+  setTimeout(() => t.remove(), bad ? 7000 : flair ? 6000 : 4000);
 }
 
 function renderLog() {
@@ -412,11 +412,10 @@ async function addAccount(only) {
   const unsavedC = state.claude && state.claude.unsaved, unsavedX = state.codex && state.codex.unsaved;
   const deadX = unsavedX && (unsavedX.problem === "revoked" || unsavedX.problem === "unauthorized");
   const choices = [
-    { id: "claude-login", p: "claude", title: "Sign in with the browser", text: "Claude Code's sign-in. The login in use is saved first." },
+    { id: "claude-login", p: "claude", title: "Sign in with Claude", text: "You get a link; nothing opens by itself. The login in use is saved first." },
     { id: "claude-save", p: "claude", title: "Save the login in use", text: unsavedC ? unsavedC.email + " is not saved yet" : "Back it up or refresh its stored copy", },
     { id: "claude-token", p: "claude", title: "Use a token or API key", text: "A setup-token or Console API key" },
-    { id: "codex-login", p: "codex", title: "Sign in with the browser", text: "Codex's sign-in. The login in use is saved first unless it is revoked." },
-    { id: "codex-code", p: "codex", title: "Sign in with a code", text: "For a machine without a browser" },
+    { id: "codex-login", p: "codex", title: "Sign in with ChatGPT", text: "You get a link and a code; nothing opens by itself. The login in use is saved first unless it is revoked." },
     { id: "codex-save", p: "codex", title: "Save the login in use", text: deadX ? "Not possible: OpenAI revoked it" : unsavedX ? unsavedX.email + " is not saved yet" : "Back it up or refresh its stored copy", disabled: deadX },
     { id: "codex-key", p: "codex", title: "Use an OpenAI API key", text: "Handed to codex on its standard input" },
   ].filter((c) => !only || c.p === only);
@@ -424,10 +423,9 @@ async function addAccount(only) {
   if (!pick) return;
   const [p, how] = pick.split("-");
   if (how === "save") return act(BASE[p] + "/save", {}, NAMES[p] + " · save login");
-  if (how === "code") return act(BASE.codex + "/login", { device: true }, "Codex · sign in by code");
   if (how === "login" && p === "codex") return act(BASE.codex + "/login", {}, "Codex · sign in");
   if (how === "login") {
-    const v = await ask({ title: "Sign in to Claude Code", ok: "Open sign-in", fields: [{ name: "email", label: "Email to pre-fill (optional)", placeholder: "you@example.com" }] });
+    const v = await ask({ title: "Sign in to Claude Code", ok: "Get the sign-in link", fields: [{ name: "email", label: "Email to pre-fill (optional)", placeholder: "you@example.com" }] });
     if (v) act(BASE.claude + "/login", v.email.trim() ? { email: v.email.trim() } : {}, "Claude · sign in");
     return;
   }
@@ -512,9 +510,9 @@ function renderBanners(conn) {
     const b = el("div", null, "banner info");
     b.append(el("span", NAMES[job.kind], "prov " + job.kind), el("span", job.message));
     if (job.url && isHttps(job.url)) {
-      const a = el("a", "Open the sign-in page");
+      const a = el("a", "or open it here");
       a.href = job.url; a.target = "_blank"; a.rel = "noopener noreferrer";
-      b.append(a, btn("Copy link", "ghost small", () => copyText(job.url, "sign-in link")));
+      b.append(btn("Copy link", "ghost small", () => copyText(job.url, "sign-in link")), a);
     }
     if (job.code) {
       const c = el("span", "Code ");
@@ -700,8 +698,8 @@ function render() {
   if (live && live.url !== linkToasted) {
     linkToasted = live.url;
     say(live.copied
-      ? "Sign-in link copied to your clipboard. Open it in the browser where the account you want is signed in."
-      : "Sign-in link ready: use Copy link in the banner to paste it into the browser you want.", false);
+      ? "Link copied for you. Paste it in the browser you want to sign in with."
+      : "Sign-in link ready. Use Copy link in the banner, then paste it in the browser you want.", false, "magic");
   }
   const job = [state.claude, state.codex].map((d) => d && d.job).find((j) => j && j.state !== "running");
   const jk = job ? job.kind + job.state + job.message : "";
