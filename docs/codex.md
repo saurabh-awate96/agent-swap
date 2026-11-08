@@ -41,6 +41,10 @@ Accounts that are not live have no such reading, so they keep showing their last
 
 Two limits follow from that. Only usage **on this machine** is recorded, so use from another computer or the Codex app does not show, and the numbers can be lower than OpenAI's (the live reading above is what corrects this for the live account). And each reading is credited to the stored account whose id matches the session's `creator_account_id`: sessions of a login aswap has not stored are ignored, never guessed onto another account. A window that has reset since the last reading is shown as unknown in the web dashboard (and as `reset` on the command line), not as 0%.
 
+## Checking every stored login
+
+The refresh button in the control panel (`/api/codex/refresh`) asks the real client about **every** stored login, not only the live one. The live account is asked as it is. A stored one is asked through a throwaway `CODEX_HOME` (a 0700 directory holding a 0600 copy of that slot's `auth.json`, removed afterwards), so nothing is switched and the live `auth.json` is never touched. If the client refreshed that copy's token, the old refresh token in the stored copy is dead, so the new file is saved back into the slot. A login whose access token is within ten minutes of expiry is not asked (the client would refresh it); it is reported as about to refresh and checked on its next real use. Each result is kept on the slot (`login ok`, `revoked`, `unauthorized`, `failed`, with the time) and shown on its card.
+
 ## Alias, disable, threshold, auto-switch, API keys
 
 Codex slots have what Claude's have: `aswap codex alias`, `disable` / `enable` (a disabled slot is skipped by `rotate`, `--strategy best`, `next-available` and auto-switch, but an explicit `switch` still works), and `threshold` (a slot's own switch-away line, 50 to 99.9). `switch --strategy next-available` rotates and skips slots whose last reading is at their limit. `aswap gui` adds a Codex auto-switch and a log-in-with-an-API-key button (`codex login --with-api-key`, the key on stdin).

@@ -46,7 +46,7 @@ function el(tag, text, cls) {
   return n;
 }
 
-async function api(path, body) {
+async function api(path, body, ms) {
   const opts = { headers: { Authorization: "Bearer " + token } };
   if (body !== undefined) {
     opts.method = "POST";
@@ -54,7 +54,7 @@ async function api(path, body) {
     opts.body = JSON.stringify(body);
   }
   const ctl = new AbortController();
-  const timer = setTimeout(() => ctl.abort(), FETCH_MS);
+  const timer = setTimeout(() => ctl.abort(), ms || FETCH_MS);
   opts.signal = ctl.signal;
   let res;
   try {
@@ -85,7 +85,7 @@ const clock = () => new Date().toLocaleTimeString([], { hour: "2-digit", minute:
 
 function say(text, kind) {
   entries.push({ ts: clock(), text: String(text), kind: kind || "info" });
-  if (entries.length > 6) entries.shift();
+  if (entries.length > 14) entries.shift();
   renderLog();
 }
 
@@ -347,6 +347,7 @@ function usageBody(p, card, n) {
     if (u.fiveHour) card.append(usageRow("5h", u.fiveHour.pct, win(u.fiveHour), lineAt, dim));
     if (u.sevenDay) card.append(usageRow("7d", u.sevenDay.pct, win(u.sevenDay) + pace(u.sevenDay), weekly, dim));
     (u.scoped || []).forEach((w) => card.append(usageRow(w.name, w.pct, win(w) + (w.pct >= 100 ? "  (!)" : pace(w)), weekly, dim)));
+    if (a.usageAgeSeconds != null) card.append(el("div", "└ usage read " + age(a.usageAgeSeconds), "note muted"));
     return;
   }
   if (a.problem) card.append(el("div", "⚠ " + (PROBLEM[a.problem] || PROBLEM.failed), "note warn"));
@@ -363,6 +364,11 @@ function usageBody(p, card, n) {
   };
   win(u.primary, "5h");
   win(u.secondary, "7d");
+  const checked = a.health && Date.parse(a.health.at);
+  if (a.health && !isNaN(checked)) {
+    const ok = a.health.status === "ok" || a.health.status === "apikey" || a.health.status === "expiring";
+    card.append(el("div", (ok ? "└ login " + (a.health.status === "expiring" ? "about to refresh" : "ok") : "⚠ login " + a.health.status) + " · checked " + age((now - checked) / 1000), "note " + (ok ? "muted" : "warn")));
+  }
   const seen = Date.parse(u.seenAt);
   if (!isNaN(seen)) {
     card.append(el("div", u.live ? "└ read from Codex " + age((now - seen) / 1000)
@@ -547,6 +553,27 @@ async function editAutoSettings(p) {
   refresh();
 }
 
+// Check every account now and say what state each is in (the terminal dashboard's `f`, for both).
+async function refreshAll() {
+  if (busy || !writable()) return;
+  busy = true;
+  working(true);
+  say("checking every account…");
+  for (const p of ["claude", "codex"]) {
+    try {
+      const r = await api(PROVIDERS[p].base + "/refresh", {}, 90000);
+      r.accounts.forEach((a) => say(PROVIDERS[p].noun + " " + a.id + " " + a.label + ": " + a.status + (a.detail ? " · " + a.detail : ""), a.ok ? "good" : "bad"));
+      say(r.message, r.accounts.some((a) => !a.ok) ? "bad" : "good");
+    } catch (e) {
+      say(PROVIDERS[p].noun + ": " + e.message, "bad");
+    }
+  }
+  busy = false;
+  working(false);
+  lastSig = "";
+  refresh();
+}
+
 const toggleAuto = (p, dry) => {
   const a = state.autoState[p];
   if (!a) return;
@@ -674,7 +701,7 @@ function renderKeys() {
   k.append(hint("↑↓", "select"), hint("←→", "panel"));
   if (writable()) {
     k.append(hint("⏎", "switch"), hint("d", "disable"), hint("a", "alias"), hint("t", "threshold"), hint("x", "remove"),
-             hint("r", "rotate"), hint("b", "best"), hint("n", "next"), hint("+", "add"), hint("v", "save login"), hint("g", "auto"));
+             hint("r", "rotate"), hint("b", "best"), hint("n", "next"), hint("+", "add"), hint("v", "save login"), hint("g", "auto"), hint("f", "refresh"));
   }
 }
 
@@ -739,6 +766,7 @@ document.addEventListener("keydown", (e) => {
   if (k === "+") return go(() => addAccount(p));
   if (k === "v") return go(() => saveLogin(p));
   if (k === "g") return go(() => toggleAuto(p, false));
+  if (k === "f") return go(refreshAll);
 });
 
 // -- data -------------------------------------------------------------------------------------------------------
@@ -796,6 +824,8 @@ async function start() {
   }
   showConnection(true);
   $("mode").textContent = writable() ? "· can change accounts" : "· read-only";
+  $("refresh").hidden = !writable();
+  $("refresh").onclick = refreshAll;
   buildPanels();
   renderKeys();
   renderLog();

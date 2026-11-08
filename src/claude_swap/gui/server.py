@@ -54,6 +54,11 @@ _LEGACY = {
     "/api/add-current": "save", "/api/add-token": "token", "/api/login": "login",
     "/api/auto": "auto", "/api/config": "config",
 }
+_CLAUDE_STATUS = {
+    "ok": "ok", "token_expired": "token expired", "api_key": "API key", "relogin_required": "sign in again",
+    "keychain_unavailable": "keychain locked", "foreign_credential": "belongs to another login",
+    "no_credentials": "no stored login", "unavailable": "usage unavailable",
+}
 _ROUTE = re.compile(r"/api/(claude|codex)/([a-z-]+)")
 _RENAMED = {"add-current": "save", "add-token": "token"}
 
@@ -335,7 +340,7 @@ class _Handler(BaseHTTPRequestHandler):
         return "claude", _LEGACY.get(path, "")
 
     def _handlers(self, provider: str) -> dict:
-        common = {"login": self._login, "auto": self._auto, "config": self._config}
+        common = {"login": self._login, "auto": self._auto, "config": self._config, "refresh": self._refresh}
         if provider == "claude":
             return {
                 "switch": self._switch, "rotate": self._rotate, "disable": self._disable,
@@ -541,6 +546,58 @@ class _Handler(BaseHTTPRequestHandler):
             self._fail(409, "Busy", "a browser login is already in progress")
         self._json(200, {"schemaVersion": SCHEMA_VERSION, "ok": True,
                          "message": saved_first + "Finish signing in in the browser window that opened."})
+
+    @staticmethod
+    def _window_name(minutes) -> str:
+        if minutes == 300:
+            return "5h"
+        if minutes == 10080:
+            return "7d"
+        return f"{round(minutes / 60)}h" if minutes and minutes < 48 * 60 else f"{round((minutes or 0) / 1440)}d"
+
+    def _refresh(self, body: dict) -> None:
+        """Check every account of this provider now and say what each one's state is.
+
+        Claude: what `aswap list` and the terminal dashboard's `f` do (usage read again where it
+        is older than the serve window, an expired idle token refreshed on request). Codex: the
+        real client asked about each stored login, without switching to it.
+        """
+        if body:
+            self._fail(400, "BadRequest", "unexpected field")
+        accounts = []
+        if self._provider == "claude":
+            payload = self.server.switcher.list_accounts(json_output=True, refresh_idle=True)
+            for a in payload["accounts"]:
+                u, parts = a.get("usage") or {}, []
+                for key, name in (("fiveHour", "5h"), ("sevenDay", "7d")):
+                    if u.get(key):
+                        parts.append(f"{name} {u[key]['pct']:.0f}%")
+                status = a.get("usageStatus", "unavailable")
+                accounts.append({
+                    "id": str(a["number"]), "label": a.get("alias") or a["email"],
+                    "ok": status == "ok" or status == "api_key",
+                    "status": _CLAUDE_STATUS.get(status, status), "detail": " · ".join(parts),
+                })
+        else:
+            for r in self.server.codex().check_all():
+                u, parts = r["usage"] or {}, []
+                for key in ("primary", "secondary"):
+                    w = u.get(key)
+                    if w:
+                        parts.append(f"{self._window_name(w['window_minutes'])} {w['used_percent']:.0f}%")
+                names = {"ok": "login ok", "revoked": "login revoked: sign in again", "unauthorized": "login rejected: sign in again",
+                         "failed": "could not check", "expiring": "token about to refresh (checked on its next use)", "apikey": "API key"}
+                accounts.append({
+                    "id": str(r["slot"]), "label": r["label"], "ok": r["status"] in ("ok", "apikey", "expiring"),
+                    "status": names.get(r["status"], r["status"]), "detail": " · ".join(parts),
+                })
+            self.server._codex_rows = None
+        bad = sum(1 for a in accounts if not a["ok"])
+        noun = "Claude" if self._provider == "claude" else "Codex"
+        self._json(200, {
+            "schemaVersion": SCHEMA_VERSION, "ok": True, "accounts": accounts,
+            "message": f"Checked {len(accounts)} {noun} account(s): " + ("all fine." if not bad else f"{bad} need attention."),
+        })
 
     def _runner(self):
         return self.server.codex_auto if self._provider == "codex" else self.server.auto

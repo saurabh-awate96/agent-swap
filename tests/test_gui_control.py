@@ -361,6 +361,27 @@ class TestCommand:
         assert seen["write"] is write
 
 
+class TestRefresh:
+    def test_claude_check_reports_each_account(self, rw, parts):
+        status, body, _ = post(rw, "/api/claude/refresh", {})
+        assert status == 200
+        (a,) = body["accounts"]
+        assert a["ok"] is True and a["status"] == "ok" and a["detail"] == "5h 10%"
+        assert body["message"] == "Checked 1 Claude account(s): all fine."
+
+    def test_codex_check_names_each_login_and_counts_the_ones_needing_attention(self, rw, parts):
+        status, body, _ = post(rw, "/api/codex/refresh", {})
+        assert status == 200 and ("check_all",) in parts[1].calls
+        assert [(a["id"], a["ok"], a["status"], a["detail"]) for a in body["accounts"]] == [
+            ("1", True, "login ok", "5h 11%"), ("2", False, "login revoked: sign in again", "")]
+        assert body["message"] == "Checked 2 Codex account(s): 1 need attention."
+
+    def test_it_takes_no_arguments_and_is_refused_read_only(self, rw, ro, parts):
+        assert post(rw, "/api/claude/refresh", {"x": 1})[0] == 400
+        assert post(ro, "/api/codex/refresh", {})[0] == 403
+        assert ("check_all",) not in parts[1].calls
+
+
 class TestParity:
     """Claude and Codex are two equal panels: the same actions, under the same names."""
 
@@ -371,7 +392,7 @@ class TestParity:
         handler.server = rw
         claude, codex = (set(handler._handlers(p)) for p in ("claude", "codex"))
         assert claude == codex == {"switch", "rotate", "disable", "alias", "threshold", "remove",
-                                   "save", "login", "token", "auto", "config"}
+                                   "save", "login", "token", "auto", "config", "refresh"}
 
     def test_the_old_claude_paths_still_answer(self, rw, parts):
         assert post(rw, "/api/switch", {"number": "2"})[0] == 200

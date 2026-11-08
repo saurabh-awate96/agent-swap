@@ -19,7 +19,7 @@ A small server from the standard library (`http.server`, no new dependency) plus
 
 ## What the page can do
 
-Both providers expose the same actions as `/api/claude/<action>` and `/api/codex/<action>` (`switch`, `rotate`, `disable`, `alias`, `threshold`, `remove`, `save`, `login`, `token`, `auto`, `config`); a test pins that the two sets are equal. The older Claude-only paths (`/api/switch`, `/api/add-current`, ...) still answer.
+Both providers expose the same actions as `/api/claude/<action>` and `/api/codex/<action>` (`switch`, `rotate`, `disable`, `alias`, `threshold`, `remove`, `save`, `login`, `token`, `auto`, `config`, `refresh`); a test pins that the two sets are equal. The older Claude-only paths (`/api/switch`, `/api/add-current`, ...) still answer.
 
 | Endpoint | Method | Does | Read-only |
 |---|---|---|---|
@@ -27,6 +27,7 @@ Both providers expose the same actions as `/api/claude/<action>` and `/api/codex
 | `/api/switch`, `/api/rotate`, `/api/disable`, `/api/remove` | POST | switch to a slot, rotate (`next`, `best`, `next-available`), hold out of rotation, remove | 403 |
 | `/api/alias`, `/api/threshold` | POST | an account's short name and its own switch-away line | 403 |
 | `/api/add-current`, `/api/add-token` | POST | save the login in use; add a setup-token or API key | 403 |
+| `/api/<provider>/refresh` | POST | check every account of that provider now and report each one's state: Claude as `aswap list` / the terminal dashboard's `f` do (usage read again where older than the serve window, an expired idle token refreshed on request); Codex through the real client per stored login (see docs/codex.md) | 403 |
 | `/api/<provider>/login` | POST | start `claude auth login [--email]`, `codex login` or `codex login --device-auth` in the browser, then save the result | 403 |
 | `/api/auto`, `/api/config` | POST | start/stop the auto-switch engine; change threshold, weekly line, strategy, keepalive | 403 |
 | `/api/codex/token` | POST | log Codex in with an API key (`codex login --with-api-key`, the key on stdin) and save it | 403 |
