@@ -144,14 +144,9 @@ def test_auto_switch_step_keeps_the_current_value_on_enter(wiz, tmp_path):
     assert not (tmp_path / "settings.json").exists()
 
 
-def test_web_dashboard_asks_before_allowing_writes(wiz):
-    with patch.object(cli, "_gui_command") as gui, \
-            patch("builtins.input", return_value="y"):
-        setup_wizard.run(wiz, read_key=keys("5", "q"))
-    gui.assert_called_once_with(["--write"])
-
-    with patch.object(cli, "_gui_command") as gui, \
-            patch("builtins.input", return_value=""):
+def test_the_web_control_panel_opens_ready_to_use(wiz):
+    # No question first: a view-only page cannot do anything, so it starts able to change accounts.
+    with patch.object(cli, "_gui_command") as gui:
         setup_wizard.run(wiz, read_key=keys("5", "q"))
     gui.assert_called_once_with([])
 

@@ -18,11 +18,14 @@ body {
   font: 15px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 }
 header { display: flex; flex-wrap: wrap; gap: 4px 24px; padding: 0 12px; }
-#notice { padding: 0 12px; margin: 4px 0 0; min-height: 1.5em; }
+#notice, #job, #conn { padding: 0 12px; margin: 4px 0 0; min-height: 1.5em; }
+#conn:empty, #job:empty { min-height: 0; margin: 0; }
 section { margin-top: 12px; }
 .section-head { display: flex; gap: 16px; align-items: baseline; padding: 0 12px; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 12px 0; }
 .muted { color: var(--muted); }
 .dim { opacity: 0.6; }
+code { color: var(--fg); }
 main { padding: 4px 12px; }
 .acct { margin: 12px 0 18px; padding-left: 10px; border-left: 3px solid transparent; }
 .acct.active { border-left-color: var(--accent); }
@@ -30,6 +33,7 @@ main { padding: 4px 12px; }
 .num { font-weight: bold; margin-right: 12px; white-space: pre; }
 .alias { color: var(--accent); font-weight: bold; }
 .on { color: var(--accent); font-weight: bold; margin-left: 12px; }
+p.on { margin-left: 0; }
 .badge { margin-left: 12px; color: var(--muted); }
 .row { display: flex; flex-wrap: wrap; gap: 0 12px; padding-left: 28px; }
 .row .label { color: var(--muted); min-width: 5ch; }
@@ -37,11 +41,40 @@ main { padding: 4px 12px; }
 .pct { min-width: 4ch; text-align: right; }
 .ok { color: var(--ok); } .warn { color: var(--warn); } .crit { color: var(--crit); }
 .track { color: var(--track); } .tick { color: var(--warn); }
-.note { padding-left: 28px; }
-.acts { padding-left: 28px; margin-top: 2px; display: flex; gap: 12px; }
-button {
-  font: inherit; color: var(--muted); background: none; border: 0; padding: 0;
-  cursor: pointer; text-decoration: underline;
+.note { padding: 2px 12px 2px 40px; }
+section > .note { padding-left: 12px; }
+.acts { padding-left: 28px; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 8px; }
+.log { padding: 2px 12px 2px 40px; }
+.log div { overflow-wrap: anywhere; }
+.log .t { color: var(--muted); margin-right: 12px; }
+
+/* Buttons: flat, outlined, readable at a glance; the primary ones take the accent. */
+.btn, button {
+  font: inherit; color: var(--fg); background: none; cursor: pointer;
+  border: 1px solid var(--track); border-radius: 2px; padding: 0 9px; line-height: 1.55;
 }
-button:hover { color: var(--fg); }
-button:disabled { opacity: 0.4; cursor: default; text-decoration: none; }
+.btn:hover, button:hover { border-color: var(--accent); color: var(--accent); }
+.btn:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 1px;
+}
+.btn.primary { border-color: var(--accent); color: var(--accent); }
+.btn.danger:hover { border-color: var(--crit); color: var(--crit); }
+.btn:disabled, button:disabled { opacity: 0.35; cursor: default; border-color: var(--track); color: var(--muted); }
+
+/* Dialog: the TUI's modal, as one bordered box. */
+dialog {
+  background: var(--surface); color: var(--fg); border: 1px solid var(--muted);
+  padding: 14px 18px; width: min(520px, 92vw); font: inherit;
+}
+dialog::backdrop { background: rgba(0, 0, 0, 0.6); }
+dialog h2 { margin: 0 0 4px; font-size: 1em; color: var(--accent); }
+dialog p { margin: 0 0 10px; overflow-wrap: anywhere; }
+.field { display: block; margin: 8px 0; }
+.field > span { display: block; color: var(--muted); }
+.field small { display: block; color: var(--muted); }
+input[type="text"], input[type="number"], input[type="password"], select {
+  font: inherit; color: var(--fg); background: var(--bg); width: 100%;
+  border: 1px solid var(--track); border-radius: 2px; padding: 3px 6px;
+}
+.field.check { display: flex; gap: 8px; align-items: center; }
+.dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }

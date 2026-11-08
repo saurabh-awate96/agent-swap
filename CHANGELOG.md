@@ -15,7 +15,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 - **`install.sh` / `install.ps1`**: one-line install (uv, pipx, or fetch uv), PATH setup, then `cswap setup`. The Windows script is untested.
 - **`cswap onboard`**: add several of your own accounts in one sitting, one `claude auth login` each.
 - **`cswap codex add|list|switch|remove|status`**: OpenAI Codex CLI account switching from local files, with usage read from Codex's own session logs and `switch --strategy best`. [docs/codex.md](docs/codex.md)
-- **`cswap gui`**: a local web dashboard in the terminal dashboard's layout, showing Claude and Codex accounts. Read-only unless `--write`. [docs/gui.md](docs/gui.md)
+- **`cswap gui`**: a local web control panel in the terminal dashboard's layout, showing Claude and Codex accounts, with buttons to switch, rotate, pick the best, disable, remove, alias, set a threshold, save the login in use, add an account through the browser sign-in, add a token, and start/stop/configure auto-switch. [docs/gui.md](docs/gui.md)
 - **`autoswitch.keepalive`** (off by default): one tiny real `claude` request per idle account, at most every 8 hours, so its login and usage stay warm without cswap calling the token endpoint.
 - [docs/safety.md](docs/safety.md), [SECURITY.md](SECURITY.md), this changelog.
 
@@ -23,6 +23,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 - The web dashboard shows the login you are using right now when it is not saved yet (Claude and Codex), instead of looking empty.
 
 ### Changed
+
+- **`cswap gui` can change accounts by default**; `--read-only` gives a view only. `--write` is still accepted and does nothing. A read-only page had no buttons and nothing to do. A stopped server now says so on the page instead of "Failed to fetch".
 
 - **Idle accounts are no longer refreshed in the background.** A lapsed idle token shows as "token expired" and is refreshed on demand (`cswap list`, `cswap switch`), or when auto-switch must leave the active account and no candidate has readable usage.
 - The web dashboard polls without refreshing idle accounts' tokens, like the terminal dashboard (`list_accounts(refresh_idle=False)`).

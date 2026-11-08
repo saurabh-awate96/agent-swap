@@ -5,7 +5,7 @@ over what the TUI and menu bar already call. Loopback is reachable by every
 local user and by any web page open in the user's browser, so each request
 passes independent checks before it touches the switcher: a Host allowlist
 (DNS rebinding), an Origin check and JSON-only POSTs (CSRF), and a per-run
-bearer token. Writes are off unless the server is started with ``write=True``.
+bearer token. Writes can be switched off with ``write=False`` (`--read-only`).
 """
 
 from __future__ import annotations
@@ -24,8 +24,9 @@ from importlib import resources
 from urllib.parse import urlsplit
 
 from claude_swap.exceptions import ClaudeSwitchError
+from claude_swap.gui.runner import AutoRunner, LoginJob
 from claude_swap.json_output import SCHEMA_VERSION, error_envelope
-from claude_swap.settings import load_settings
+from claude_swap.settings import load_settings, set_setting, unset_setting
 from claude_swap.tui.data import run_action
 
 POLL_SECONDS = 3
@@ -36,6 +37,15 @@ CODEX_REFRESH_S = 30
 # Slot numbers only. An email or alias would let `switch_to` reach its
 # interactive disambiguation prompt, and the page never needs to send one.
 _SLOT = re.compile(r"[0-9]{1,3}")
+
+# The only settings the page may change: the auto-switch controls it shows.
+_CONFIG_KEYS = {
+    "autoswitch.threshold", "autoswitch.weeklyThreshold",
+    "autoswitch.strategy", "autoswitch.keepalive",
+}
+_STRATEGIES = {"next": None, "best": "best", "next-available": "next-available"}
+# Writes that stay possible while a browser login is waiting for the user.
+_DURING_LOGIN = {"/api/auto", "/api/config"}
 
 _ASSETS = {
     "/": ("index.html", "text/html; charset=utf-8"),
@@ -69,7 +79,7 @@ class _Reject(Exception):
 class GuiServer(ThreadingHTTPServer):
     daemon_threads = True
 
-    def __init__(self, switcher, *, write: bool = False, port: int = 0, codex=None):
+    def __init__(self, switcher, *, write: bool = False, port: int = 0, codex=None, auto=None, job=None):
         # 127.0.0.1 only -- never 0.0.0.0 or ::.
         super().__init__(("127.0.0.1", port), _Handler)
         self.switcher = switcher
@@ -78,6 +88,8 @@ class GuiServer(ThreadingHTTPServer):
         self._codex_rows: tuple[float, dict] | None = None
         self.token = secrets.token_urlsafe(16)  # per run, never persisted
         self.write_lock = threading.Lock()
+        self.auto = auto or AutoRunner(switcher)  # the engine only starts when asked
+        self.job = job or LoginJob()
         self.hosts = {
             f"127.0.0.1:{self.server_port}",
             f"localhost:{self.server_port}",
@@ -112,6 +124,12 @@ class GuiServer(ThreadingHTTPServer):
         except (ClaudeSwitchError, OSError):
             return None
         return {"email": live[0], "isOrganization": bool(live[1])}
+
+    def codex_live_unsaved(self) -> bool:
+        try:
+            return self.codex().status()["state"] == "unmanaged"
+        except ClaudeSwitchError:
+            return False
 
     def codex_payload(self) -> dict:
         """Codex accounts, cached briefly. A Codex problem (keyring mode, a torn
@@ -237,6 +255,7 @@ class _Handler(BaseHTTPRequestHandler):
                     "cooldownSeconds": s.cooldown_seconds,
                     "strategy": s.strategy,
                     "model": s.model,
+                    "keepalive": s.keepalive,
                 },
             })
         elif path == "/api/accounts":
@@ -244,7 +263,18 @@ class _Handler(BaseHTTPRequestHandler):
             # account's token (same rule as the terminal dashboard).
             payload = self.server.switcher.list_accounts(json_output=True, refresh_idle=False)
             payload["unsaved"] = self.server.unsaved_claude()
+            payload["job"] = self.server.job.snapshot()
             self._json(200, payload)
+        elif path == "/api/auto":
+            s = load_settings(self.server.switcher.backup_dir)
+            self._json(200, {
+                "schemaVersion": SCHEMA_VERSION, **self.server.auto.snapshot(),
+                "settings": {
+                    "threshold": s.threshold, "weeklyThreshold": s.weekly_threshold,
+                    "strategy": s.strategy, "keepalive": s.keepalive,
+                    "intervalSeconds": s.interval_seconds,
+                },
+            })
         elif path == "/api/codex":
             self._json(200, self.server.codex_payload())
         else:
@@ -260,9 +290,21 @@ class _Handler(BaseHTTPRequestHandler):
             "/api/add-current": self._add_current,
             "/api/codex/switch": self._codex_switch,
             "/api/codex/add-current": self._codex_add_current,
+            "/api/codex/rotate": self._codex_rotate,
+            "/api/codex/remove": self._codex_remove,
+            "/api/rotate": self._rotate,
+            "/api/remove": self._remove,
+            "/api/alias": self._alias,
+            "/api/threshold": self._threshold,
+            "/api/add-token": self._add_token,
+            "/api/login": self._login,
+            "/api/auto": self._auto,
+            "/api/config": self._config,
         }.get(urlsplit(self.path).path)
         if action is None:
             self._fail(404, "NotFound", "no such endpoint")
+        if self.server.job.running() and urlsplit(self.path).path not in _DURING_LOGIN:
+            self._fail(409, "Busy", "a browser login is in progress; finish or wait for it first")
         body = self._read_body()
         # One write at a time: `run_action` redirects stdout/stdin process-wide.
         if not self.server.write_lock.acquire(blocking=False):
@@ -339,11 +381,160 @@ class _Handler(BaseHTTPRequestHandler):
             "message": f"{'Added' if created else 'Refreshed'} Codex slot {slot}",
         })
 
-    def _finish(self, call, extra: dict) -> None:
+    def _finish(self, call, extra: dict, default: str = "Done.", hide: str | None = None) -> None:
         result = run_action(call)
         message = result.first_line
+        if hide:  # a secret the action might echo back in a message
+            message = message.replace(hide, "…")
         if not result.ok:
             self._fail(400, "ClaudeSwitchError", message.removeprefix("Error: "))
         self._json(200, {
-            "schemaVersion": SCHEMA_VERSION, "ok": True, "message": message, **extra,
+            "schemaVersion": SCHEMA_VERSION, "ok": True, "message": message or default, **extra,
         })
+
+    # -- more actions, all validated here: the page only ever sends plain values ----
+
+    def _strategy(self, body: dict) -> str | None:
+        if set(body) - {"strategy"}:
+            self._fail(400, "BadRequest", "unexpected field")
+        name = body.get("strategy", "next")
+        if name not in _STRATEGIES:
+            self._fail(400, "BadRequest", "strategy must be next, best or next-available")
+        return _STRATEGIES[name]
+
+    def _rotate(self, body: dict) -> None:
+        result = self.server.switcher.switch(strategy=self._strategy(body), json_output=True) or {}
+        result.setdefault("schemaVersion", SCHEMA_VERSION)
+        self._json(200, result)
+
+    def _remove(self, body: dict) -> None:
+        number = self._number(body, {"number"})
+        self._finish(partial(self.server.switcher.remove_account, number, assume_yes=True),
+                     {"number": number}, "Removed.")
+
+    def _alias(self, body: dict) -> None:
+        number = self._number(body, {"number", "alias"})
+        alias = body.get("alias")
+        if not isinstance(alias, str) or len(alias) > 64:
+            self._fail(400, "BadRequest", "alias must be text of at most 64 characters")
+        alias = alias.strip()
+        sw = self.server.switcher
+        call = partial(sw.set_alias, number, alias) if alias else partial(sw.unset_alias, number)
+        self._finish(call, {"number": number, "alias": alias}, "Alias saved." if alias else "Alias removed.")
+
+    def _threshold(self, body: dict) -> None:
+        number = self._number(body, {"number", "threshold"})
+        value = body.get("threshold")
+        if value is not None and (isinstance(value, bool) or not isinstance(value, (int, float))):
+            self._fail(400, "BadRequest", "threshold must be a number, or null to clear it")
+        self._finish(partial(self.server.switcher.set_account_threshold, number, value),
+                     {"number": number, "threshold": value},
+                     "Threshold saved." if value is not None else "Threshold cleared.")
+
+    def _add_token(self, body: dict) -> None:
+        if set(body) - {"token", "email"}:
+            self._fail(400, "BadRequest", "unexpected field")
+        token, email = body.get("token"), body.get("email") or None
+        if not isinstance(token, str) or not 8 <= len(token) <= 2048:
+            self._fail(400, "BadRequest", "paste the whole token or API key")
+        if email is not None and (not isinstance(email, str) or len(email) > 254):
+            self._fail(400, "BadRequest", "email must be text")
+        self._finish(
+            partial(self.server.switcher.add_account_from_token, token=token, email=email, assume_yes=True),
+            {}, "Account added.", hide=token,
+        )
+
+    def _login(self, body: dict) -> None:
+        server, kind = self.server, body.get("kind")
+        if kind == "claude":
+            if set(body) - {"kind", "email"}:
+                self._fail(400, "BadRequest", "unexpected field")
+            email = body.get("email")
+            if not isinstance(email, str) or len(email) > 254 or not server.switcher._validate_email(email):
+                self._fail(400, "BadRequest", "enter a valid email address")
+            if server.unsaved_claude() is not None:
+                self._fail(409, "Unsaved", "Save the login you are using now first: signing in replaces it.")
+            binary = shutil.which("claude")
+            if binary is None:
+                self._fail(400, "NotInstalled", "Claude Code (`claude`) was not found on PATH")
+            argv = [binary, "auth", "login", "--email", email]
+
+            def save() -> str:
+                with server.write_lock:
+                    result = run_action(server.switcher.add_account)
+                if not result.ok:
+                    raise ClaudeSwitchError(result.first_line.removeprefix("Error: "))
+                return result.first_line or "Account saved."
+        elif kind == "codex":
+            if set(body) - {"kind"}:
+                self._fail(400, "BadRequest", "unexpected field")
+            if server.codex_live_unsaved():
+                self._fail(409, "Unsaved", "Save the Codex login you are using now first: signing in replaces it.")
+            binary = shutil.which("codex")
+            if binary is None:
+                self._fail(400, "NotInstalled", "Codex (`codex`) was not found on PATH")
+            argv = [binary, "login"]
+
+            def save() -> str:
+                with server.write_lock:
+                    slot, created = server.codex().add()
+                    server._codex_rows = None
+                return f"{'Added' if created else 'Refreshed'} Codex slot {slot}"
+        else:
+            self._fail(400, "BadRequest", "kind must be claude or codex")
+        if not server.job.start(kind, argv, save):
+            self._fail(409, "Busy", "a browser login is already in progress")
+        self._json(200, {"schemaVersion": SCHEMA_VERSION, "ok": True,
+                         "message": "Finish signing in in the browser window that opened."})
+
+    def _auto(self, body: dict) -> None:
+        if set(body) - {"action", "dryRun"}:
+            self._fail(400, "BadRequest", "unexpected field")
+        dry, action = body.get("dryRun", False), body.get("action")
+        if not isinstance(dry, bool) or action not in ("start", "stop"):
+            self._fail(400, "BadRequest", "action must be start or stop")
+        auto = self.server.auto
+        auto.start(dry_run=dry) if action == "start" else auto.stop()
+        message = "Auto-switch stopped." if action == "stop" else (
+            "Auto-switch started in dry-run: it only reports." if dry else "Auto-switch started.")
+        self._json(200, {"schemaVersion": SCHEMA_VERSION, "ok": True, "message": message, **auto.snapshot()})
+
+    def _config(self, body: dict) -> None:
+        if set(body) - {"key", "value"}:
+            self._fail(400, "BadRequest", "unexpected field")
+        key, value = body.get("key"), body.get("value")
+        if key not in _CONFIG_KEYS:
+            self._fail(400, "BadRequest", "that setting cannot be changed from here")
+        root = self.server.switcher.backup_dir
+        if value is None:
+            unset_setting(root, key)
+        else:
+            if isinstance(value, bool):
+                raw = "true" if value else "false"
+            elif isinstance(value, (int, float)) or (isinstance(value, str) and len(value) <= 40):
+                raw = str(value)
+            else:
+                self._fail(400, "BadRequest", "value must be a number, true/false or a short text")
+            try:
+                set_setting(root, key, raw)
+            except ValueError as e:
+                self._fail(400, "BadRequest", str(e))
+        self.server.auto.restart()  # an engine in progress picks the new value up
+        self._json(200, {"schemaVersion": SCHEMA_VERSION, "ok": True, "message": "Saved."})
+
+    def _codex_rotate(self, body: dict) -> None:
+        strategy = self._strategy(body)
+        if strategy == "next-available":
+            self._fail(400, "BadRequest", "Codex rotation is next or best")
+        slot, changed = self.server.codex().switch(None, strategy=strategy)
+        self.server._codex_rows = None
+        self._json(200, {
+            "schemaVersion": SCHEMA_VERSION, "switched": changed, "to": {"number": slot},
+            "message": "Running Codex sessions keep their account until restarted.",
+        })
+
+    def _codex_remove(self, body: dict) -> None:
+        number = self._number(body, {"number"})
+        slot = self.server.codex().remove(number, yes=True)
+        self.server._codex_rows = None
+        self._json(200, {"schemaVersion": SCHEMA_VERSION, "ok": True, "message": f"Removed Codex slot {slot}"})

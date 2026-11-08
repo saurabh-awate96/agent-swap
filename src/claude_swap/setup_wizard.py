@@ -164,11 +164,9 @@ def _auto_switch_step(backup_root) -> None:
 def _dashboard_step(switcher) -> None:
     from claude_swap import cli
 
-    allow = input("  Let the web page switch accounts too? [y/N] ").strip().lower() in ("y", "yes")
     print(dimmed("  Ctrl+C stops the dashboard and brings you back here."))
-    argv = ["--write"] if allow else []
     with contextlib.suppress(KeyboardInterrupt, SystemExit):
-        cli._gui_command(argv)
+        cli._gui_command([])
 
 
 def _tui_step(switcher) -> None:
@@ -204,7 +202,7 @@ def run(switcher, *, read_key=None) -> int:
             items.append(("3", "Save my Codex login"))
         items += [
             ("4", "Auto-switch: choose when to hop to the next account"),
-            ("5", "Open the web dashboard"),
+            ("5", "Open the web control panel"),
             ("6", "Open the terminal dashboard"),
             ("q", "Finish"),
         ]
