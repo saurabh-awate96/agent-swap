@@ -88,7 +88,8 @@ main { padding: 6px 0 0; }
 .badge { margin-left: 12px; color: var(--muted); }
 .row { display: grid; grid-template-columns: 7ch max-content 4ch minmax(0, 1fr); gap: 0 12px; padding-left: 28px; align-items: baseline; }
 .row .label { color: var(--muted); }
-.row > .muted:last-child { overflow-wrap: anywhere; }
+.row > .muted:last-child { overflow-wrap: break-word; }
+.row .wide { grid-column: 3 / span 2; }
 .bar { white-space: pre; }
 .pct { min-width: 4ch; text-align: right; }
 .dim { opacity: 0.6; }

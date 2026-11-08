@@ -145,7 +145,8 @@ function bar(pct, line) {
 function usageRow(label, pct, suffix, line, dim, unknown) {
   const row = el("div", null, "row" + (dim ? " dim" : ""));
   row.append(el("span", label, "label"), bar(pct, line));
-  row.append(pct == null ? el("span", unknown || "usage unknown", "muted")
+  // No figure: the note takes the percent and reset columns together, so it never wraps letter by letter.
+  row.append(pct == null ? el("span", unknown || "usage unknown", "muted wide")
                          : el("span", pct.toFixed(0) + "%", "pct " + sev(pct)));
   if (suffix) row.append(el("span", suffix, "muted"));
   return row;
