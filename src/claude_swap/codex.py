@@ -201,7 +201,18 @@ def _last_snapshot(fh, size: int) -> dict | None:
 
 PROBE_STALE_S = 300
 PROBE_BUDGET_S = 15.0
-_PROBE: dict = {}  # {"identity", "at" (monotonic), "snap"}: last attempt, shared by every Codex()
+_PROBE: dict = {}  # {"identity", "at" (monotonic), "snap", "problem"}: last attempt, shared by every Codex()
+
+
+def _problem_of(result: dict | None) -> str | None:
+    """What OpenAI said was wrong with the login, from an error reply (None when fine or silent)."""
+    err = (result or {}).get("error")
+    if not isinstance(err, str):
+        return None
+    low = err.lower()
+    if "token_revoked" in low or "invalidated" in low:
+        return "revoked"
+    return "unauthorized" if "401" in low or "unauthorized" in low else "failed"
 
 
 def _read_rate_limits(budget: float | None = None) -> dict | None:
@@ -257,8 +268,11 @@ def _read_rate_limits(budget: float | None = None) -> dict | None:
             return None
         send({"method": "initialized"})
         send({"id": 2, "method": "account/rateLimits/read"})
-        result = (reply(2) or {}).get("result")
-        return result if isinstance(result, dict) else None
+        msg = reply(2) or {}
+        if isinstance(msg.get("result"), dict):
+            return msg["result"]
+        err = msg.get("error")  # e.g. a revoked login: say so instead of going quiet
+        return {"error": str(err.get("message", ""))[:400]} if isinstance(err, dict) else None
     except OSError:  # a broken pipe: the client went away
         return None
     finally:
@@ -308,8 +322,9 @@ def _probe_snapshot(identity) -> dict | None:
     now = time.monotonic()
     if _PROBE.get("identity") == identity and now - _PROBE["at"] < PROBE_STALE_S:
         return _PROBE["snap"]
-    snap = _usage_from_rate_limits(_read_rate_limits())
-    _PROBE.update(identity=identity, at=now, snap=snap)
+    result = _read_rate_limits()
+    snap = _usage_from_rate_limits(result)
+    _PROBE.update(identity=identity, at=now, snap=snap, problem=_problem_of(result))
     return snap
 
 
@@ -641,14 +656,18 @@ class Codex:
             return None, None
         return self._match(data, auth), auth
 
-    def _apply_probe(self, data: dict, persist: bool) -> None:
-        """Replace the live account's stale reading with the real client's, when it answers."""
+    def _apply_probe(self, data: dict, persist: bool) -> tuple[int, str] | None:
+        """Replace the live account's stale reading with the real client's, when it answers.
+
+        Returns ``(slot, problem)`` when OpenAI refused the live login (revoked, unauthorized).
+        """
         n, auth = self._live_slot(data)
         if n is None or not _needs_probe(data["accounts"][str(n)].get("usage"), time.time()):
-            return
+            return None
         snap = _probe_snapshot(auth.identity)
         if snap is None or self._live_slot(data)[0] != n:
-            return  # no answer, or the login changed while asking: the reading is not this account's
+            problem = _PROBE.get("problem") if self._live_slot(data)[0] == n else None
+            return (n, problem) if problem else None  # no answer, or the login changed while asking
         data["accounts"][str(n)]["usage"] = snap
         if persist:
             with self._locked(codex_lock=False):
@@ -657,6 +676,7 @@ class Codex:
                 if str(n) in fresh["accounts"] and (not held or snap["seenAt"] > held["seenAt"]):
                     fresh["accounts"][str(n)]["usage"] = snap
                     self._save(fresh)
+        return None
 
     def rows(self, persist: bool = True, probe: bool = False) -> list[dict]:
         """One dict per stored account. ``persist=False`` writes nothing (the
@@ -664,13 +684,16 @@ class Codex:
         lets a stale live account be read through the real client (see above)."""
         self._require_file_store()
         data = self._load()
+        problems: dict[int, str] = {}
         if data["accounts"]:
             with self._locked(codex_lock=False):
                 data = self._load()
                 if self._refresh_usage(data) and persist:
                     self._save(data)
             if probe and load_usage_settings(paths.get_backup_root()).codex_probe:
-                self._apply_probe(data, persist)
+                found = self._apply_probe(data, persist)
+                if found:
+                    problems[found[0]] = found[1]
         active = data["activeAccountNumber"]
         return [
             {
@@ -682,6 +705,7 @@ class Codex:
                 "active": int(n) == active,
                 "disabled": bool(a.get("disabled")),
                 "threshold": a.get("threshold"),
+                "problem": problems.get(int(n)),
                 "usage": a.get("usage"),
             }
             for n, a in sorted(data["accounts"].items(), key=lambda kv: int(kv[0]))
