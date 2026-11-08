@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+# setup-uv used to set this; without it uv picks the newest Python on the runner.
+env:
+  UV_PYTHON: '3.12'
+
 jobs:
   lint:
     runs-on: ubuntu-latest
