@@ -1,6 +1,25 @@
 # Automatic switching: the exact rules
 
-Reference for `aswap auto`, and for the menu bar's auto-switch, which runs the same engine. Everyday use is in the [README](../README.md#automatic-switching).
+Reference for `aswap auto`, and for the menu bar's and web panel's auto-switch, which run the same engine. Everyday use is in the [README](../README.md#automatic-switching). Codex has its own, smaller engine, described at the end of [codex.md](codex.md#not-built).
+
+## Settings
+
+Set with `aswap config set <key> <value>`; flags on `aswap auto` override them for one run.
+
+| Key | Flag | Default | Range |
+|---|---|---|---|
+| `autoswitch.threshold` | `--threshold` | `90` | 50 to 99.9 |
+| `autoswitch.weeklyThreshold` | `--weekly-threshold` | same as threshold | 50 to 99.9 |
+| `autoswitch.strategy` | `--strategy` | `best` | `best`, `weekly-first`, `consume-first`, `priority-consume-first` |
+| `autoswitch.model` | `--model` | none | model names, or `all` |
+| `autoswitch.intervalSeconds` | `--interval` | `60` | 15 to 3600 seconds |
+| `autoswitch.cooldownSeconds` | `--cooldown` | `300` | 0 to 86400 seconds |
+| `autoswitch.hysteresisPct` | — | `10` | 0 to 50 points |
+| `autoswitch.unhealthyTicks` | — | `3` | 1 to 100 failed polls |
+| `autoswitch.includeApiKeyAccounts` | `--include-api-key-accounts` | `false` | — |
+| `autoswitch.keepalive` | — | `false` | — |
+
+`autoswitch.hysteresisPct` is the margin a candidate must beat the active account by (see [Cooldown and hysteresis](#cooldown-and-hysteresis)). `unhealthyTicks` is how many failed polls in a row mark an account unhealthy.
 
 ## Strategies
 
@@ -23,7 +42,7 @@ One threshold compared against the busiest window forces the same number on wind
 
 ## Per-account threshold
 
-`aswap threshold <num|email> <pct>` gives one account its own switch-away line (50–99.9) in place of the global one: auto-switch leaves that account when *its* line is reached and prefers candidates still under *theirs*, with ranking and the hysteresis margin counting room under each account's own line rather than raw headroom. Like the global threshold it is a switch-away line, not a hard cap — with nothing under its line, or the active account at its limit, it still lands somewhere rather than stall (`priority-consume-first` is the exception: it holds, see below). With a weekly line set, the override applies to the 5-hour window only. Accounts without one keep the global threshold. `aswap threshold` alone lists the default and every override, `--unset` clears one, and the [TUI](../README.md#interactive-dashboard-tui) shows a `th 85%` badge.
+`aswap threshold <num|email> <pct>` gives one account its own switch-away line (50–99.9) in place of the global one: auto-switch leaves that account when *its* line is reached and prefers candidates still under *theirs*, with ranking and the hysteresis margin counting room under each account's own line rather than raw headroom. Like the global threshold it is a switch-away line, not a hard cap — with nothing under its line, or the active account at its limit, it still lands somewhere rather than stall (`priority-consume-first` is the exception: it holds, see below). With a weekly line set, the override applies to the 5-hour window only. Accounts without one keep the global threshold. `aswap threshold` alone lists the default and every override, `--unset` clears one, and the [terminal dashboard](tui.md) shows a `th 85%` badge.
 
 ## Account priority tiers
 
@@ -31,7 +50,7 @@ One threshold compared against the busiest window forces the same number on wind
 
 ## Holding an account out of rotation
 
-To hold an account out of rotation yourself — a work account you don't want touched, one you're resting — run `aswap disable <num|email>`; `aswap enable <num|email>` puts it back. Disabled accounts are skipped by auto-switch, bare `aswap switch`, and the `best` / `next-available` strategies, but stay fully managed and remain a valid explicit `aswap switch <num|email>` target. They show a `(disabled)` marker in `aswap list`, in the [TUI](../README.md#interactive-dashboard-tui), and in the [menu bar](../README.md#menu-bar-macos) — both of which also let you toggle the state in place (TUI: menu → *Disable / enable account…*; menu bar: *Disable / enable account*).
+To hold an account out of rotation yourself — a work account you don't want touched, one you're resting — run `aswap disable <num|email>`; `aswap enable <num|email>` puts it back. Disabled accounts are skipped by auto-switch, bare `aswap switch`, and the `best` / `next-available` strategies, but stay fully managed and remain a valid explicit `aswap switch <num|email>` target. They show a `(disabled)` marker in `aswap list`, in the [terminal dashboard](tui.md), and in the [menu bar](menubar.md) — both of which also let you toggle the state in place (dashboard: menu → *Disable / enable account…*; menu bar: *Disable / enable account*).
 
 ## Per-model limits
 

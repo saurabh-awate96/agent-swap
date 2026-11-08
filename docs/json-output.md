@@ -1,6 +1,27 @@
 # JSON output reference
 
-`aswap list --json`, `aswap status --json` and `aswap switch --json` print a single JSON object on stdout; human-readable notices go to stderr. The commands and an example are in the [README](../README.md#json-output-for-scripting).
+`aswap list --json`, `aswap status --json` and `aswap switch --json` print a single JSON object on stdout; human-readable notices go to stderr. The commands are listed in [commands.md](commands.md). Codex's `--json` output is different: see [its section below](#codex-json).
+
+Example:
+
+```bash
+aswap list --json                   # all accounts with usage and quota
+aswap status --json                 # the account in use
+aswap switch --strategy best --json # switch, then report the result
+aswap switch 2 --json
+```
+
+```json
+{
+  "schemaVersion": 1,
+  "activeAccountNumber": 2,
+  "accounts": [
+    { "number": 2, "email": "you@example.com", "active": true, "usageStatus": "ok",
+      "usage": { "fiveHour": { "pct": 25.0, "resetsAt": "2026-06-22T23:29:59Z" },
+                 "sevenDay": { "pct": 16.0, "resetsAt": "2026-06-26T17:59:59Z" } } }
+  ]
+}
+```
 
 ## Contract
 
@@ -48,3 +69,12 @@ The two projections stay `--json`-only, since a linear projection is too rough t
 ## `aswap auto --json`
 
 `aswap auto --json` emits an event stream instead: one JSON object per line (`{"schemaVersion":1,"event":"switch","ts":…, …}`) with kinds like `poll`, `switch`, `no-switch`, `account-quarantined`, `all-exhausted`, `error`. The contract is additive: new kinds and fields may appear, so scripts should ignore unknown ones.
+
+## Codex JSON
+
+`aswap codex list --json` and `aswap codex status --json` are separate from the Claude payloads above, and they do **not** carry a `schemaVersion` yet:
+
+- `aswap codex list --json` prints a JSON array, one object per stored account: `slot`, `alias`, `email`, `plan`, `authMode`, `active`, `disabled`, `threshold`, `problem`, `health` and `usage`. `usage` holds the Codex windows as Codex recorded them (`primary` and `secondary`, each with `used_percent`, `window_minutes` and `resets_at`, a Unix time).
+- `aswap codex status --json` prints one object: `state` (`managed`, `unmanaged`, `absent` or `unreadable`), and for a managed or unmanaged login `slot`, `email`, `plan`, `authMode`, `lastRefresh`, `accessExpiresInSeconds` and `usage`.
+
+Scripts should read the fields they need by name and ignore the rest. Until these payloads carry a `schemaVersion`, their shape may change between releases; the change will be listed in the [changelog](../CHANGELOG.md).
