@@ -570,7 +570,7 @@ def _no_real_codex_client(monkeypatch):
     """No test may start the real ``codex app-server``: it would make a network
     call with the developer's own Codex login. Tests of the live reading patch
     this themselves, and test_codex keeps the real function for its fake client."""
-    monkeypatch.setattr("claude_swap.codex._read_rate_limits", lambda budget=None: None)
+    monkeypatch.setattr("claude_swap.codex._read_rate_limits", lambda budget=None, home=None: None)
 
 
 @pytest.fixture

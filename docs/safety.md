@@ -26,6 +26,7 @@ aswap only manages accounts you own. It has no feature for taking over someone e
 | Update check | at most once a day (an hour after a failure); skipped for git/folder installs | PyPI |
 | Keepalive (`autoswitch.keepalive`, **off by default**) | idle account whose token is about to lapse, at most once per 8 hours | Anthropic, through the real `claude` binary |
 | Codex usage of the **live** account (`usage.codexProbe`, on by default) | only when its local reading is older than 5 minutes or a window reset; at most once per 5 minutes per process | OpenAI, through the real `codex app-server` with your own login; aswap makes no OpenAI request of its own |
+| **Refresh** in the control panel (you press it) | Claude: usage reads, and a token refresh only for an account whose token already expired; Codex: the real client asked once per stored login, through a throwaway `CODEX_HOME` | Anthropic; OpenAI by the real `codex` binary |
 | Web control panel | the same usage reads as the first row, and never a token refresh for an idle account; a button you press can run any command in this table (switch, add, the sign-in browser flow) | the page itself is served on `127.0.0.1` only |
 
 Idle accounts are **not** refreshed in the background. An idle account whose access token lapsed shows "token expired" until you use it, which is deliberate: every token refresh by aswap is a request made with Claude Code's client id from a different program, and the fewer of those there are, the better.

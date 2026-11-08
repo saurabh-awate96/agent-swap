@@ -816,7 +816,7 @@ def probe(monkeypatch):
     calls = []
     answer = {"value": rate_limits()}
 
-    def fake(budget=None):
+    def fake(budget=None, home=None):
         calls.append(1)
         return answer["value"]
 
@@ -915,7 +915,7 @@ def test_a_reading_is_dropped_if_the_login_changed_while_asking(env, monkeypatch
     sw = two_accounts(env)  # live B
     codex._PROBE.clear()
 
-    def switching(budget=None):
+    def switching(budget=None, home=None):
         env.login(make_auth(**A))  # the user switched to A mid-read
         return rate_limits()
 
@@ -1098,3 +1098,86 @@ def test_other_probe_failures_are_named_too(env, probe):
 def test_an_error_reply_yields_no_usage_and_a_good_one_no_problem():
     assert codex._usage_from_rate_limits({"error": "401"}) is None
     assert codex._problem_of(rate_limits()) is None and codex._problem_of(None) is None
+
+
+# --- checking every stored login with the real client (refresh button) ------------------------------
+
+
+@pytest.fixture
+def asked(monkeypatch):
+    """Replace the client: record which login each ask was about; answers come from `answers`."""
+    log, answers = [], {}
+
+    def fake(budget=None, home=None):
+        who = None
+        if home is not None:
+            blob = (Path(home) / "auth.json").read_bytes()
+            who = codex.parse_auth(blob).email
+            if os.name == "posix":
+                assert stat.S_IMODE(os.stat(home).st_mode) == 0o700
+                assert stat.S_IMODE(os.stat(Path(home) / "auth.json").st_mode) == 0o600
+            log.append((who, Path(home)))
+            if answers.get("rewrite") == who:   # the client refreshed its token
+                (Path(home) / "auth.json").write_bytes(make_auth(email=who, user="user-B", account="acct-B",
+                                                                  refresh="rt-B-NEW").encode())
+        else:
+            log.append(("live", None))
+        return answers.get(who or "live", rate_limits())
+
+    codex._PROBE.clear()
+    monkeypatch.setattr(codex, "_read_rate_limits", fake)
+    fake.log, fake.answers = log, answers
+    yield fake
+    codex._PROBE.clear()
+
+
+def test_check_all_asks_about_every_login_and_records_each_result(env, asked):
+    sw = two_accounts(env)  # live B (2), slot 1 is A
+    out = {r["slot"]: r for r in sw.check_all()}
+    assert out[2]["status"] == "ok" and out[1]["status"] == "ok"
+    assert [w for w, _ in asked.log] == ["a@example.com", "live"] or [w for w, _ in asked.log] == ["live", "a@example.com"]
+    rows = {r["slot"]: r for r in sw.rows()}
+    assert rows[1]["health"]["status"] == "ok" and rows[1]["usage"]["primary"]["used_percent"] == 6
+    assert rows[2]["health"]["status"] == "ok"
+
+
+def test_a_stored_login_is_asked_through_a_throwaway_home_that_is_removed(env, asked):
+    sw = two_accounts(env)
+    live_before = env.live_bytes()
+    sw.check_all()
+    (who, home), = [x for x in asked.log if x[1] is not None]
+    assert who == "a@example.com" and not home.exists()      # gone afterwards
+    assert env.live_bytes() == live_before                     # the real auth.json was never touched
+
+
+def test_a_revoked_stored_login_is_named(env, asked):
+    sw = two_accounts(env)
+    asked.answers["a@example.com"] = {"error": 'GET .../usage failed: 401; body={"code":"token_revoked"}'}
+    out = {r["slot"]: r for r in sw.check_all()}
+    assert out[1]["status"] == "revoked" and out[1]["usage"] is None
+    assert {r["slot"]: r["health"]["status"] for r in sw.rows()}[1] == "revoked"
+
+
+def test_a_token_the_client_refreshed_is_saved_back_into_the_slot(env, asked):
+    sw = env.sw()
+    env.login(make_auth(**B))
+    sw.add()                                  # slot 1 = B
+    env.login(make_auth(**A))
+    sw.add()                                  # slot 2 = A, live
+    asked.answers["rewrite"] = "b@example.com"
+    sw.check_all()
+    assert b"rt-B-NEW" in sw._read_blob(1) and b"rt-B-1" not in sw._read_blob(1)
+
+
+def test_a_login_about_to_expire_is_not_asked_and_an_api_key_is_skipped(env, asked):
+    sw = env.sw()
+    env.login(make_auth(**A, exp=datetime.now(timezone.utc) + timedelta(minutes=3)))
+    sw.add()
+    env.login(make_auth(**B))
+    sw.add()
+    env.login(json.dumps({"OPENAI_API_KEY": "sk-test", "auth_mode": "apikey", "tokens": None}))
+    sw.add()
+    env.login(make_auth(**B))                 # back to B as live
+    out = {r["slot"]: r["status"] for r in sw.check_all()}
+    assert out[1] == "expiring" and out[3] == "apikey" and out[2] == "ok"
+    assert all(who != "a@example.com" for who, _ in asked.log)

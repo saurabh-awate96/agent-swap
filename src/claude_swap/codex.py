@@ -215,10 +215,11 @@ def _problem_of(result: dict | None) -> str | None:
     return "unauthorized" if "401" in low or "unauthorized" in low else "failed"
 
 
-def _read_rate_limits(budget: float | None = None) -> dict | None:
+def _read_rate_limits(budget: float | None = None, home: Path | None = None) -> dict | None:
     """The ``result`` of ``account/rateLimits/read`` from ``codex app-server``, or None.
 
-    None on any failure (no codex, a crash, an error reply, no answer in time).
+    None on any failure (no codex, a crash, no answer in time); ``{"error": ...}`` when
+    OpenAI refused the login. ``home`` runs the client against another ``CODEX_HOME``.
     """
     binary = shutil.which("codex")
     if binary is None:
@@ -230,6 +231,7 @@ def _read_rate_limits(budget: float | None = None) -> dict | None:
         proc = subprocess.Popen(
             [binary, "app-server"], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL, text=True, encoding="utf-8",
+            env=None if home is None else {**os.environ, "CODEX_HOME": str(home)},
         )
     except OSError:
         return None
@@ -611,6 +613,75 @@ class Codex:
             raise SwitchError(f"`codex login --with-api-key` failed (exit {done.returncode})")
         return self.add(alias=alias)
 
+    def _check_stored(self, n: int, blob: bytes) -> tuple[str, dict | None, bytes | None]:
+        """Ask the real client about a stored login without switching to it.
+
+        It runs against a throwaway CODEX_HOME holding a copy of the slot's auth.json (0700 dir,
+        0600 file, removed afterwards). If the client refreshed the token, the single-use refresh
+        token in the stored copy is dead, so the new file is handed back to be saved.
+        Returns (status, usage snapshot or None, new auth.json bytes or None).
+        """
+        import tempfile
+
+        auth = parse_auth(blob)
+        if auth.mode == "apikey":
+            return "apikey", None, None
+        if auth.access_exp and (auth.access_exp - datetime.now(timezone.utc)).total_seconds() < NEAR_EXPIRY_S:
+            return "expiring", None, None  # the client would refresh it; do that on its next real use
+        with tempfile.TemporaryDirectory(prefix="agent-swap-codex-") as tmp:
+            os.chmod(tmp, 0o700)
+            atomic_write_bytes(Path(tmp) / "auth.json", blob, mode=0o600)
+            result = _read_rate_limits(home=Path(tmp))
+            try:
+                after = (Path(tmp) / "auth.json").read_bytes()
+            except OSError:
+                after = None
+        newer = after if after and after != blob and parse_auth(after).identity == auth.identity else None
+        problem = _problem_of(result)
+        if problem:
+            return problem, None, newer
+        snap = _usage_from_rate_limits(result)
+        return ("ok" if snap else "failed"), snap, newer
+
+    def check_all(self) -> list[dict]:
+        """Check every stored login with the real client and record the result per slot.
+
+        The live account is asked as it is; the others through a throwaway home (see above).
+        Returns ``[{"slot", "label", "status", "usage"}]`` where status is ok, revoked,
+        unauthorized, failed, expiring (not asked, about to refresh on its own) or apikey.
+        """
+        self._require_file_store()
+        _PROBE.clear()
+        data = self._load()
+        live_n, live_auth = self._live_slot(data)
+        out, found = [], {}
+        for key, acct in sorted(data["accounts"].items(), key=lambda kv: int(kv[0])):
+            n = int(key)
+            if acct["authMode"] == "apikey":
+                out.append({"slot": n, "label": self._label(acct), "status": "apikey", "usage": None})
+                continue
+            if n == live_n:
+                snap = _probe_snapshot(live_auth.identity)
+                status = "ok" if snap else (_PROBE.get("problem") or "failed")
+                found[n] = (status, snap, None)
+            else:
+                blob = self._read_blob(n)
+                found[n] = self._check_stored(n, blob) if blob else ("failed", None, None)
+            out.append({"slot": n, "label": self._label(acct), "status": found[n][0], "usage": found[n][1]})
+        with self._locked(codex_lock=False):
+            data = self._load()
+            for n, (status, snap, newer) in found.items():
+                acct = data["accounts"].get(str(n))
+                if acct is None:
+                    continue
+                acct["health"] = {"status": status, "at": _now()}
+                if snap:
+                    acct["usage"] = snap
+                if newer is not None:
+                    self._write_blob(n, newer)
+            self._save(data)
+        return out
+
     def _refresh_usage(self, data: dict) -> bool:
         """Fold the newest rollout snapshot per slot into ``data``. True if it changed."""
         slots = {n: a for n, a in data["accounts"].items() if a["authMode"] != "apikey"}
@@ -706,6 +777,7 @@ class Codex:
                 "disabled": bool(a.get("disabled")),
                 "threshold": a.get("threshold"),
                 "problem": problems.get(int(n)),
+                "health": a.get("health"),
                 "usage": a.get("usage"),
             }
             for n, a in sorted(data["accounts"].items(), key=lambda kv: int(kv[0]))
