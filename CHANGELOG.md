@@ -11,6 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 
 ### Added
 
+- **A sturdier control panel**: a cursor row instead of a wall of buttons (select an account; only it shows actions), a key for every action with a footer of hints, an activity log that stays on screen, a clear stale state when the dashboard stops (requests time out, out-of-order answers are ignored), no rebuild under an open dialog or a click, usage windows named by their real length (`30d` for Codex's go plan, not `5h`), the duplicate organisation tag dropped, and a revoked Codex login reported instead of silently showing stale numbers.
 - **`aswap codex run`**: Codex that follows an account switch. It runs Codex as a child in the same terminal and, when the account is switched from anywhere, reopens it on the new login with `codex resume` of the same conversation. The Codex panel says how many sessions do this and warns about a Codex running outside it. POSIX only.
 - **Claude and Codex are equal in the control panel**: two panels with the same parts in the same order and the same actions (`/api/<provider>/<action>`, pinned by a test). Codex gained alias, disable/enable, per-account threshold, `next-available`, an auto-switch engine and API-key login; `aswap codex alias|disable|enable|threshold` exist on the command line too.
 - **Add account works on its own**: it saves the login in use first, takes an optional email for Claude, offers `codex login --device-auth`, and shows the sign-in link and device code in the panel when no browser window opens.

@@ -1079,3 +1079,22 @@ def test_cli_alias_disable_enable_threshold(env, capsys):
         assert word in out
     with pytest.raises(SystemExit):
         cli._codex_command(["threshold", "1"])        # neither a percent nor --unset
+
+
+def test_a_revoked_live_login_is_reported_not_swallowed(env, probe):
+    sw = two_accounts(env)
+    probe.answer["value"] = {"error": 'GET .../wham/usage failed: 401 Unauthorized; body={"code":"token_revoked"}'}
+    rows = {r["slot"]: r for r in sw.rows(persist=False, probe=True)}
+    assert rows[2]["problem"] == "revoked" and rows[2]["usage"] is None
+    assert rows[1]["problem"] is None
+
+
+def test_other_probe_failures_are_named_too(env, probe):
+    sw = two_accounts(env)
+    probe.answer["value"] = {"error": "something broke"}
+    assert {r["slot"]: r["problem"] for r in sw.rows(persist=False, probe=True)}[2] == "failed"
+
+
+def test_an_error_reply_yields_no_usage_and_a_good_one_no_problem():
+    assert codex._usage_from_rate_limits({"error": "401"}) is None
+    assert codex._problem_of(rate_limits()) is None and codex._problem_of(None) is None

@@ -11,11 +11,18 @@
   <span class="brand">agent-swap</span>
   <span id="mode" class="muted"></span>
   <span id="updated" class="muted"></span>
+  <span id="working" class="on" role="status"></span>
 </header>
 <p id="conn" class="warn" role="alert"></p>
-<p id="notice" class="muted" role="status"></p>
 
 <div id="panels" class="panels"></div>
+
+<section id="activity" aria-label="activity">
+  <div class="sub">activity</div>
+  <div id="log" role="log" aria-live="polite"></div>
+</section>
+
+<footer id="keys" class="keys"></footer>
 
 <dialog id="dlg" aria-labelledby="dlg-title">
   <h2 id="dlg-title"></h2>
