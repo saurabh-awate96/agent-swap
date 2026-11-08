@@ -63,7 +63,7 @@ button:disabled { opacity: 0.4; cursor: default; }
   backdrop-filter: blur(8px); border-bottom: 1px solid var(--line);
 }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 650; letter-spacing: -0.01em; font-size: 15px; }
-.mark { width: 18px; height: 18px; border-radius: 5px; background: conic-gradient(from 210deg, var(--accent), #4fd1c5, var(--accent)); }
+.mark { width: 22px; height: 22px; border-radius: 6px; display: block; }
 .top-right { display: flex; align-items: center; gap: 10px; }
 .chip { font-size: 12px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 9px; }
 .chip:empty { display: none; }
@@ -78,6 +78,7 @@ button:disabled { opacity: 0.4; cursor: default; }
 .banner.info { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); }
 .banner a { color: var(--accent); }
 .banner .code { font: 600 15px ui-monospace, Menlo, monospace; letter-spacing: 0.12em; }
+.banner .ghost.small { margin-left: -6px; }
 body.stale .page { opacity: 0.55; }
 
 /* -- page ------------------------------------------------------------------------------------------ */

@@ -271,9 +271,21 @@ class TestToken:
         status, _, _ = call(ro, "GET", f"/api/accounts?token={ro.token}", token=False)
         assert status == 401
 
-    @pytest.mark.parametrize("path", ["/", "/app.js", "/app.css"])
+    @pytest.mark.parametrize("path", ["/", "/app.js", "/app.css", "/logo.svg"])
     def test_the_static_page_needs_no_token(self, ro, path):
         assert call(ro, "GET", path, token=False)[0] == 200
+
+    def test_the_logo_is_an_inert_svg_served_as_such(self, ro):
+        import http.client
+
+        conn = http.client.HTTPConnection("127.0.0.1", ro.server_port, timeout=5)
+        conn.request("GET", "/logo.svg", headers={"Host": f"127.0.0.1:{ro.server_port}"})
+        resp = conn.getresponse()
+        body = resp.read().decode()
+        conn.close()
+        assert resp.status == 200 and resp.getheader("Content-Type") == "image/svg+xml"
+        assert "<script" not in body.lower() and "onload" not in body.lower() and "javascript:" not in body.lower()
+        assert resp.getheader("X-Content-Type-Options") == "nosniff"
 
 
 class TestOrigin:
@@ -320,7 +332,7 @@ class TestMethodsAndHeaders:
     @pytest.mark.parametrize("path", [
         "/../../etc/passwd", "/%2e%2e/x", "/static/../app.js", "/index.html",
     ])
-    def test_only_the_three_assets_are_served(self, ro, path):
+    def test_only_the_known_assets_are_served(self, ro, path):
         assert call(ro, "GET", path, token=False)[0] in (401, 404)
 
 

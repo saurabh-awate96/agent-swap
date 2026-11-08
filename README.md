@@ -1,9 +1,11 @@
 <!-- README rule: say what the user can do, give a minimal example, and mention only caveats that change their decision.
      Mechanics go in docs/, rationale in the PR. When behavior changes, edit the existing text instead of appending. -->
 
-# agent-swap
+<p align="center"><img src="assets/logo.svg" width="96" alt="agent-swap logo: two arrows passing each other, one violet, one teal"></p>
 
-**Every Claude and Codex account you own, one keystroke apart.**
+<h1 align="center">agent-swap</h1>
+
+<p align="center"><b>Every Claude and Codex account you own, one keystroke apart.</b></p>
 
 agent-swap keeps a copy of each login you own (Claude Code and OpenAI Codex CLI) and switches which one your tools use, with no logout. It can move you off an account before you hit a limit, shows every account's usage in a terminal or browser dashboard, and runs two accounts side by side. It is a local app, not a proxy: your requests never pass through it.
 

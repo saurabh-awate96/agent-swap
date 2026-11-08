@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="agent-swap">
+  <defs>
+    <linearGradient id="as-edge" x1="0" y1="0" x2="64" y2="64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#a99bff"/>
+      <stop offset="1" stop-color="#2dd4bf"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="16" fill="#121317"/>
+  <rect x="0.75" y="0.75" width="62.5" height="62.5" rx="15.25" fill="none" stroke="url(#as-edge)" stroke-opacity="0.45" stroke-width="1.5"/>
+  <g fill="none" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21.5 24 H45" stroke="#a99bff"/>
+    <path d="M38 17 L45.5 24 L38 31" stroke="#a99bff"/>
+    <path d="M42.5 40 H19" stroke="#2dd4bf"/>
+    <path d="M26 33 L18.5 40 L26 47" stroke="#2dd4bf"/>
+  </g>
+  <circle cx="15.5" cy="24" r="4.5" fill="#a99bff"/>
+  <circle cx="48.5" cy="40" r="4.5" fill="#2dd4bf"/>
+</svg>

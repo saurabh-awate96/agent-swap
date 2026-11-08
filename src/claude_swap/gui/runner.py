@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import collections
 import re
+import shutil
 import subprocess
 import threading
 import time
@@ -20,6 +21,25 @@ LOGIN_TIMEOUT_S = 300
 _ANSI = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 _URL = re.compile(r"https://[^\s\"'<>)]+")
 _CODE = re.compile(r"\b[A-Z0-9]{4}-[A-Z0-9]{4,6}\b")  # a device-login code, like ABCD-1234
+
+
+def copy_to_clipboard(text: str) -> bool:
+    """Put ``text`` on the system clipboard with the platform's own tool. False if none worked.
+
+    Done by the dashboard's process, not the page: a browser only lets a page write the
+    clipboard right after a click, and the sign-in link arrives later, from a poll.
+    """
+    for argv in (["pbcopy"], ["wl-copy"], ["xclip", "-selection", "clipboard"],
+                 ["xsel", "--clipboard", "--input"], ["clip"]):
+        if shutil.which(argv[0]) is None:
+            continue
+        try:
+            subprocess.run(argv, input=text, text=True, timeout=5, check=True,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except (OSError, subprocess.SubprocessError):
+            continue
+    return False
 
 
 class AutoRunner:
@@ -194,12 +214,14 @@ class LoginJob:
     ``start`` runs ``argv`` (never through a shell, no input; its output is only read for a URL and a code),
     and when it exits 0 calls ``save()`` for the message to show. The state is
     what the page polls: ``{"kind", "state": running|done|error, "message"}``, plus the
-    ``url`` and device ``code`` the client printed, if any (https only).
+    ``url`` and device ``code`` the client printed, if any (https only), and ``copied``:
+    whether the link was put on the clipboard.
     """
 
-    def __init__(self):
+    def __init__(self, copier: Callable[[str], bool] | None = None):
         self._state: dict | None = None
         self._lock = threading.Lock()
+        self._copier = copier  # None: the system clipboard, looked up when used
 
     def running(self) -> bool:
         return bool(self._state and self._state["state"] == "running")
@@ -229,6 +251,12 @@ class LoginJob:
         url = _URL.search(line)
         if url and "url" not in state:
             state["url"] = url.group(0).rstrip(".,")
+            # So it can be pasted into the browser profile of the account you want.
+            copier = self._copier or copy_to_clipboard
+            try:
+                state["copied"] = bool(copier(state["url"]))
+            except Exception:
+                state["copied"] = False
         code = _CODE.search(line)
         if code and "code" not in state:
             state["code"] = code.group(0)

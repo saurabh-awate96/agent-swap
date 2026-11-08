@@ -7,6 +7,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 
 ### Added
 
+- **A logo** (`assets/logo.svg`): two agents passing each other, one violet and one teal. It is the page icon and sits in the top bar and at the top of the README.
+- **Sign-in link on your clipboard.** When a Codex or Claude sign-in prints its link, agent-swap copies it and a toast says so, so you can paste it into the browser profile of the account you want. The banner also has **Copy link**, and the device code has a **Copy code** button.
 - **Codex accounts** with `aswap codex`: `add`, `list`, `switch` (rotate, a named account, `--strategy best|next-available`), `remove`, `status`, `alias`, `disable`/`enable`, `threshold`, and `run`. Switching reads and writes local files only. [docs/codex.md](docs/codex.md)
 - **`aswap codex run`**: runs Codex in the same terminal and, when the account is switched from anywhere, reopens it on the new login and resumes the same conversation. POSIX only.
 - **Live Codex usage**: for the live account only, a stale or missing reading is replaced by the current numbers from the real `codex app-server`, at most once every five minutes. `usage.codexProbe` (default on) turns it off.
