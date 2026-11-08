@@ -2,7 +2,7 @@
 #
 #   irm https://raw.githubusercontent.com/saurabh-awate96/agent-swap/main/install.ps1 | iex
 #
-# Installs uv if missing, installs agent-swap with it, then opens `cswap setup`.
+# Installs uv if missing, installs agent-swap with it, then opens `aswap setup`.
 # Optional: $env:CSWAP_SPEC (path / git+https URL / PyPI name), $env:CSWAP_NO_SETUP.
 $ErrorActionPreference = "Stop"
 
@@ -19,4 +19,4 @@ if (uv tool list | Select-String '^claude-swap ') { Write-Host 'Replacing the ol
 uv tool install --force --from $Spec agent-swap
 uv tool update-shell | Out-Null
 
-if (-not $env:CSWAP_NO_SETUP) { cswap setup } else { Write-Host "Next: cswap setup" }
+if (-not $env:CSWAP_NO_SETUP) { aswap setup } else { Write-Host "Next: aswap setup" }

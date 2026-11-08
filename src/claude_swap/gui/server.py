@@ -1,4 +1,4 @@
-"""`cswap gui`: a local web dashboard served from the standard library.
+"""`aswap gui`: a local web dashboard served from the standard library.
 
 A loopback-only HTTP server that serves one static page and a small JSON API
 over what the TUI and menu bar already call. Loopback is reachable by every
@@ -122,7 +122,7 @@ class GuiServer(ThreadingHTTPServer):
         return self._codex
 
     def unsaved_claude(self) -> dict | None:
-        """The login Claude Code is using now, when cswap has not saved it.
+        """The login Claude Code is using now, when aswap has not saved it.
 
         Only the address: it comes from ``.claude.json`` (no keychain read, no
         network), so the page can say "this one is not saved yet" instead of
@@ -222,7 +222,7 @@ class _Handler(BaseHTTPRequestHandler):
             log.exception("gui request failed")
             self._json(500, {
                 "schemaVersion": SCHEMA_VERSION,
-                "error": {"type": "InternalError", "message": "see the cswap log"},
+                "error": {"type": "InternalError", "message": "see the aswap log"},
             })
 
     def _check_origin(self) -> None:
@@ -475,7 +475,7 @@ class _Handler(BaseHTTPRequestHandler):
     def _login(self, body: dict) -> None:
         """Sign in to another account in the browser, then save it.
 
-        The login in use is saved first when cswap does not have it yet (signing in
+        The login in use is saved first when aswap does not have it yet (signing in
         replaces it), so there is nothing for the user to do beforehand.
         """
         server = self.server

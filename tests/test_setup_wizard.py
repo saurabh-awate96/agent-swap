@@ -1,4 +1,4 @@
-"""`cswap setup`: the guided first-run screen and the one-line installer.
+"""`aswap setup`: the guided first-run screen and the one-line installer.
 
 The wizard only routes to code that already has its own tests (add_account,
 the onboard loop, Codex.add, set_setting, the dashboards), so these tests pin
@@ -71,7 +71,7 @@ def wiz():
 def test_finish_prints_the_cheat_sheet(wiz, capsys):
     assert setup_wizard.run(wiz, read_key=keys("q")) == 0
     out = capsys.readouterr().out
-    assert "cswap switch" in out and "cswap gui" in out
+    assert "aswap switch" in out and "aswap gui" in out
 
 
 def test_status_board_shows_what_is_installed_and_saved(wiz, capsys):
@@ -171,5 +171,5 @@ class TestInstaller:
     def test_installer_hands_the_keyboard_to_setup_under_curl_sh(self):
         # `curl | sh` makes stdin the script; setup must read from the tty.
         text = (ROOT / "install.sh").read_text()
-        assert 'cswap" setup </dev/tty' in text
+        assert 'aswap" setup </dev/tty' in text
         assert "CSWAP_NO_SETUP" in text

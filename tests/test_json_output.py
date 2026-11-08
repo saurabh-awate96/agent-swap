@@ -814,7 +814,7 @@ class TestUsageFromJson:
     @pytest.mark.parametrize("resets_at", [None, "2099-01-01T05:00:00+00:00"])
     def test_a_window_without_a_figure_round_trips(self, window, key, other, resets_at):
         # ``list --json`` emits ``"pct": null`` for a window reported without a
-        # utilization figure; ``cswap import-usage`` must read that document back.
+        # utilization figure; ``aswap import-usage`` must read that document back.
         import time
 
         from claude_swap.json_output import usage_from_json, usage_to_json

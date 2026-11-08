@@ -1,6 +1,6 @@
 """Session mode: run Claude Code as a stored account in one terminal.
 
-``cswap run NUM|EMAIL`` launches Claude Code with ``CLAUDE_CONFIG_DIR``
+``aswap run NUM|EMAIL`` launches Claude Code with ``CLAUDE_CONFIG_DIR``
 pointing at a persistent per-account profile under
 ``<backup_dir>/sessions/<num>-<email-slug>/``, leaving the default
 ``~/.claude/`` login (and every other terminal, plus the VS Code extension)
@@ -23,7 +23,7 @@ changes land in ``~/.claude``. On macOS and Linux every item is a symlink.
 On Windows a directory is a junction, which any user may create, and a
 file is a symlink when the process may create one (Developer Mode, or an
 elevated terminal) and otherwise a copy re-synced on every launch, as
-before. A manifest records what cswap created so removal never touches
+before. A manifest records what aswap created so removal never touches
 user data.
 
 History sharing (on by default; ``--no-share-history`` or ``run.shareHistory
@@ -40,7 +40,7 @@ not kept is parked under ``<backup_dir>/history-conflicts/``.
 
 Junctions are not symlinks to the stdlib: ``is_symlink()`` is False for one,
 ``is_dir()`` follows it, ``rglob`` walks into it. Every test for "is this a
-link cswap made" is therefore ``fsutil.is_link``, and the merge walks a
+link aswap made" is therefore ``fsutil.is_link``, and the merge walks a
 profile's history with its own eyes (``_history_tree``).
 
 This module must not import ``switcher`` (switcher imports us for the
@@ -125,7 +125,7 @@ HISTORY_ITEMS = (
 _DIR_ITEMS = frozenset({"skills", "commands", "agents", "rules", "projects"})
 
 
-# Records which entries in a session profile cswap created (so --no-share and
+# Records which entries in a session profile aswap created (so --no-share and
 # re-syncs only ever remove cswap-managed links/copies, never user data).
 SHARE_MANIFEST = ".cswap-shared.json"
 
@@ -136,7 +136,7 @@ QUARANTINE_DIRNAME = "history-conflicts"
 
 # Deferred-invalidation marker: backup credentials changed while a session was
 # live (we never pull credentials out from under a running claude), so the
-# profile must be re-bootstrapped on the next non-live `cswap run` even if it
+# profile must be re-bootstrapped on the next non-live `aswap run` even if it
 # still passes the local reuse check.
 STALE_MARKER = ".cswap-stale-credentials"
 
@@ -155,7 +155,7 @@ MCP_DISPLACED_STASH = ".cswap-mcp-displaced.json"
 # The one lock every history migration takes. It lives IN the shared
 # destination (``~/.claude``), the only place every launch that can merge into
 # that tree agrees on: on Linux the backup root follows ``XDG_DATA_HOME``, so
-# two cswap stores can share one ``~/.claude``, and a lock inside either store
+# two aswap stores can share one ``~/.claude``, and a lock inside either store
 # is invisible to the other. Never deleted, not even by ``--purge``: unlinking
 # a flock'd file lets a newcomer create a fresh one and hold "the" lock next
 # to a process still holding the old inode. A named constant rather than an
@@ -198,7 +198,7 @@ def is_session_stale(session_dir: Path) -> bool:
     """Whether a profile is flagged for re-bootstrap.
 
     Both locations: the child path is where the marker used to live, and a
-    profile marked by an older cswap on this machine has a pending
+    profile marked by an older aswap on this machine has a pending
     re-bootstrap that the move must not drop. Read, never written.
     """
     return (
@@ -250,7 +250,7 @@ def mark_session_stale(session_dir: Path) -> bool:
 # Env vars that make claude bypass account OAuth entirely (verified against
 # claude 2.1.175). Dropped from the auth-status probe (they'd fake "logged in"
 # for the wrong reason) AND scrubbed from the session launch env with a
-# warning: `cswap run N` is an explicit request for account N, so letting an
+# warning: `aswap run N` is an explicit request for account N, so letting an
 # exported API key silently hijack the session would defeat the command. The
 # same-account fast path (plain claude, untouched env) does not scrub.
 AUTH_OVERRIDE_ENV_VARS = (
@@ -346,7 +346,7 @@ def read_session_credentials(session_dir: Path) -> str | None:
     credential lives in the profile's hashed keychain entry (which shadows
     the plaintext seed from the moment claude first writes it), elsewhere in
     the profile's ``.credentials.json``. Read-only by design: writing either
-    location stays claude's job (see the module docstring on why cswap never
+    location stays claude's job (see the module docstring on why aswap never
     writes the hashed entry). Returns ``None`` when the profile has no
     readable credential material.
     """
@@ -916,7 +916,7 @@ class SessionManager:
     def exec_default(self, claude_args: list[str]) -> NoReturn:
         """Launch plain Claude Code with the current default login.
 
-        Used by `cswap run` (no account) when the cwd has no mapping, or its
+        Used by `aswap run` (no account) when the cwd has no mapping, or its
         mapped account no longer exists. Equivalent to typing `claude`
         directly: the unmodified environment is passed through (no session
         profile, no auth-override scrubbing), so whatever the default login
@@ -932,7 +932,7 @@ class SessionManager:
     def _exec(self, claude_bin: str, claude_args: list[str], env: dict[str, str]) -> NoReturn:
         """Hand the terminal over to claude. Never returns.
 
-        POSIX: ``execvpe`` replaces the cswap process entirely (the lock is
+        POSIX: ``execvpe`` replaces the aswap process entirely (the lock is
         already released — an exec'd claude must never inherit a held flock).
         Windows: ``os.exec*`` detaches from the console confusingly, so stay
         resident as a thin wrapper and mirror claude's exit code.
@@ -957,8 +957,8 @@ class SessionManager:
         if self.switcher._account_kind(account_num) == "api_key":
             raise SessionError(
                 f"Account-{account_num} ({email}) is an API-key account; "
-                "'cswap run' (session mode) does not support API-key accounts yet. "
-                "Use 'cswap --switch-to' to make it your default login instead."
+                "'aswap run' (session mode) does not support API-key accounts yet. "
+                "Use 'aswap --switch-to' to make it your default login instead."
             )
 
     # -- bootstrap -------------------------------------------------------
@@ -986,7 +986,7 @@ class SessionManager:
         # Deferred invalidation: backup credentials changed while this profile
         # was live, so its credentials are presumed stale even if they still
         # pass the local reuse check. Honored only when no session is live —
-        # a second `cswap run` joining a live session must not invalidate
+        # a second `aswap run` joining a live session must not invalidate
         # under the running claude (the marker survives for later).
         stale = is_session_stale(session_dir) and profile_is_quiescent(session_dir)
 
@@ -1059,7 +1059,7 @@ class SessionManager:
                     f"spent grant and the successor is gone. Fix the storage "
                     f"failure first; retrying before that spends nothing but "
                     f"earns a strike. If the slot strikes, log in again and "
-                    f"re-add it: cswap --add-account --slot {account_num}"
+                    f"re-add it: aswap --add-account --slot {account_num}"
                 )
             if outcome.error is not None:
                 warning(
@@ -1069,14 +1069,14 @@ class SessionManager:
 
         with FileLock(self.switcher.lock_file, timeout=_BOOTSTRAP_LOCK_TIMEOUT):
             # Re-evaluate the marker under the lock, then re-check validity:
-            # another `cswap run` may have bootstrapped while we waited.
+            # another `aswap run` may have bootstrapped while we waited.
             if is_session_stale(session_dir) and profile_is_quiescent(session_dir):
                 self.switcher._invalidate_session_credentials(account_num, email)
                 clear_session_stale(session_dir)
             if self._is_session_valid(session_dir, email, org_uuid):
                 # Valid, but possibly not on the generation WE just paid for.
                 # The consume above runs outside this lock (it POSTs), so a
-                # peer `cswap run` can bootstrap while we wait — and its
+                # peer `aswap run` can bootstrap while we wait — and its
                 # profile predates our rotation. Its refresh token is the one
                 # our gate consumed, so claude's own refresh would get
                 # invalid_grant on first use: a spent grant, silently.
@@ -1108,7 +1108,7 @@ class SessionManager:
             # the profile's Keychain entry and overwrites .credentials.json, so
             # running it here would move that live claude onto this account
             # and lose the newer login's tokens. Refuse instead.
-            self.switcher._ensure_no_live_session(account_num, email, "cswap run")
+            self.switcher._ensure_no_live_session(account_num, email, "aswap run")
             self._bootstrap(session_dir, account_num, email, org_uuid)
             self._sync_sharing(session_dir, share, share_history)
 
@@ -1141,7 +1141,7 @@ class SessionManager:
                 raise SessionError(
                     f"Session profile for Account-{account_num} ({email}) failed "
                     f"validation. Log in with that account and re-add it: "
-                    f"cswap --add-account --slot {account_num}"
+                    f"aswap --add-account --slot {account_num}"
                 )
         # Lock released here, before any exec.
 
@@ -1192,7 +1192,7 @@ class SessionManager:
                 )
             raise SessionError(
                 f"Account-{account_num} has no stored credentials. "
-                f"Re-add with: cswap --add-account --slot {account_num}"
+                f"Re-add with: aswap --add-account --slot {account_num}"
             )
 
         # The pre-lock refresh (see run(): the consume gate must not run
@@ -1209,7 +1209,7 @@ class SessionManager:
         if not oauth_account:
             raise SessionError(
                 f"Account-{account_num} has no stored config backup. "
-                f"Re-add with: cswap --add-account --slot {account_num}"
+                f"Re-add with: aswap --add-account --slot {account_num}"
             )
 
         session_dir.mkdir(parents=True, exist_ok=True)
@@ -1475,7 +1475,7 @@ class SessionManager:
                 in_place = link_points_at(dest, link_target)
                 ours = in_place or name in managed or link_points_at(dest, src)
                 if not ours:
-                    # A link cswap never made, leading somewhere else: the
+                    # A link aswap never made, leading somewhere else: the
                     # user's own redirect, left alone like a directory of
                     # their own — and what it leads to is never touched.
                     print(
@@ -1652,7 +1652,7 @@ class SessionManager:
         else:
             print(
                 dimmed(
-                    "   Windows lets cswap link a file only with Developer Mode "
+                    "   Windows lets aswap link a file only with Developer Mode "
                     "on (Settings > System > For developers) or in an elevated "
                     "terminal. Conversations (projects/) are shared through a "
                     "junction, which needs neither."
@@ -1664,7 +1664,7 @@ class SessionManager:
 
         Pure mirror: the default profile is the single source of truth, so
         adds, edits, and deletions all propagate, and MCP changes made inside
-        a session are overwritten the next time cswap prepares the profile.
+        a session are overwritten the next time aswap prepares the profile.
         Nothing ever flows back into the default config, and per-project
         (``projects[…].mcpServers``) entries are untouched on both sides.
 
@@ -1780,7 +1780,7 @@ class SessionManager:
         genuinely has no user servers (``{}`` propagates the removal), while
         a missing/corrupt config or a non-dict key returns ``None`` so the
         caller leaves the profile untouched. Reads the default-home path
-        (ignoring CLAUDE_CONFIG_DIR — a nested `cswap run` must not source
+        (ignoring CLAUDE_CONFIG_DIR — a nested `aswap run` must not source
         from another session); no lock needed, claude's writes are atomic.
         """
         config = SessionManager._load_json_object(get_default_global_config_path())
@@ -2066,7 +2066,7 @@ class SessionManager:
         second copy of the block only buries the first.
 
         ``lock_busy`` is the one deferral that has nothing to do with this
-        profile's own sessions: a peer cswap launch held ``MIGRATION_LOCK``
+        profile's own sessions: a peer aswap launch held ``MIGRATION_LOCK``
         past the timeout, merging some profile's history (not necessarily
         this one's) into the same shared tree.
         """
@@ -2096,7 +2096,7 @@ class SessionManager:
             # peer is done.
             print(
                 dimmed(
-                    "   Another cswap launch is merging history into "
+                    "   Another aswap launch is merging history into "
                     "~/.claude right now."
                 )
             )
@@ -2132,11 +2132,11 @@ class SessionManager:
             print(dimmed(f"   Close anything using it, then relaunch:  {retry}"))
 
     def _sharing_relaunch_command(self, slot: str) -> str:
-        """The ``cswap run`` that shares history next time, as the user would
+        """The ``aswap run`` that shares history next time, as the user would
         type it: the flag only where their settings turn sharing off."""
         if load_run_settings(self.switcher.backup_dir).share_history:
-            return f"cswap run {slot}"
-        return f"cswap run {slot} --share-history"
+            return f"aswap run {slot}"
+        return f"aswap run {slot} --share-history"
 
     def _report_sharing_is_the_default(self) -> None:
         """Name the opt-out when the default reaches history a profile holds.
@@ -2155,7 +2155,7 @@ class SessionManager:
         print(
             dimmed(
                 "Chat history is shared between accounts by default now "
-                "(turn off: cswap config set run.shareHistory false)."
+                "(turn off: aswap config set run.shareHistory false)."
             )
         )
 
@@ -2216,7 +2216,7 @@ class SessionManager:
         so a record read a moment ago can already be behind. Two kinds of
         writer are not seen at all: a process that never registers a record
         (a teammate or subagent process), and a session running in a profile
-        of ANOTHER cswap store that shares this ``~/.claude`` (a second
+        of ANOTHER aswap store that shares this ``~/.claude`` (a second
         ``XDG_DATA_HOME``), whose records are kept where this store cannot
         find them. Such a session goes undetected, and a transcript it is
         writing can be replaced by a later profile copy — the copy it was

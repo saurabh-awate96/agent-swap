@@ -1,10 +1,10 @@
-"""macOS menu bar app for claude-swap (``cswap --menubar``).
+"""macOS menu bar app for claude-swap (``aswap --menubar``).
 
 A thin GUI shell over ``ClaudeAccountSwitcher`` and the core auto-switch engine
 (``claude_swap.autoswitch``) — it never re-implements account, usage, or
 auto-switch logic. Usage for display comes from ``switcher.accounts_snapshot()``
 (backed by the shared usage store); auto-switching, when enabled, runs the same
-``AutoSwitchEngine`` the CLI's ``cswap auto`` drives, sharing
+``AutoSwitchEngine`` the CLI's ``aswap auto`` drives, sharing
 ``autoswitch_state.json`` and the ``autoswitch.*`` settings. The menu bar keeps
 only its own display preferences.
 
@@ -335,8 +335,8 @@ def menu_note(note: str, limit: int = MENU_NOTE_LIMIT) -> str:
     """The state half of a sentinel note, sized for a menu row.
 
     ``SENTINEL_NOTES`` carry a remedy after an em dash ("re-login needed —
-    refresh token dead; log in with Claude Code, then run: cswap add"), which
-    ``cswap list`` has the width for. A menu is as wide as its widest row, so
+    refresh token dead; log in with Claude Code, then run: aswap add"), which
+    ``aswap list`` has the width for. A menu is as wide as its widest row, so
     one expired account otherwise doubles the menu and pushes every other
     row's numbers to the far edge. The row keeps the state; the full note
     travels as the row's tooltip (see ``rebuild_menu``).
@@ -705,7 +705,7 @@ def framework_build_warning(
 
 
 def run(switcher) -> int:
-    """Entry point for ``cswap --menubar``. Blocks until the user quits."""
+    """Entry point for ``aswap --menubar``. Blocks until the user quits."""
     try:
         import rumps  # lazy: optional dependency, imported only when launching
         import AppKit  # ships with rumps (pyobjc-framework-Cocoa), never fails alone
@@ -729,8 +729,8 @@ def run(switcher) -> int:
     if not app_bundle.in_bundle():
         ensure_notification_identity()
     try:
-        # Pid and build of this worker, so a later `cswap menubar` or
-        # `cswap upgrade` can tell an instance of an old build from the
+        # Pid and build of this worker, so a later `aswap menubar` or
+        # `aswap upgrade` can tell an instance of an old build from the
         # installed one. Never worth failing the start over.
         launch_agent.write_worker_stamp(switcher.backup_dir)
     except OSError:
@@ -776,7 +776,7 @@ def run(switcher) -> int:
             self._config_path = switcher._get_claude_config_path()
             self._config_mtime = 0.0
             self._last_usage_log: dict = {}  # account num -> last-logged (5h, 7d) key
-            # Auto-switch engine (the same one `cswap auto` runs), hosted in a
+            # Auto-switch engine (the same one `aswap auto` runs), hosted in a
             # background thread while enabled.
             self._engine = None
             # Why the engine is not running although auto-switch is enabled:
@@ -1295,7 +1295,7 @@ def run(switcher) -> int:
                     title="claude-swap",
                     message="Couldn't read the active credential: the Keychain didn't "
                             "answer (locked, or the security call timed out). Unlock it "
-                            "or try again in a moment; `cswap add` in a Terminal shows "
+                            "or try again in a moment; `aswap add` in a Terminal shows "
                             "the full error.",
                 )
                 return

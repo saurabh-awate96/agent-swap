@@ -241,7 +241,7 @@ SHARED_CREDENTIAL_KEYS = frozenset({
     "pluginSecrets",
 })
 
-# Account-scoped siblings cswap knows about, named so the unrecognized-key
+# Account-scoped siblings aswap knows about, named so the unrecognized-key
 # probe below doesn't flag them: claudeAiOauth is the login itself,
 # trustedDeviceToken is enrolled per (device, account) at /login.
 ACCOUNT_CREDENTIAL_KEYS = frozenset({
@@ -264,14 +264,14 @@ def shared_credential_fields(credentials: str | None) -> dict | None:
     if data is None:
         return None
     if "claudeAiOauth" in data:
-        # A sibling key cswap doesn't know defaults to slot-owned (fails
+        # A sibling key aswap doesn't know defaults to slot-owned (fails
         # safe), but silently: if Claude Code grows a new *shared* key,
         # that default quietly reintroduces the stale-restore papercut for
         # it — leave a trace so it gets noticed.
         unrecognized = data.keys() - SHARED_CREDENTIAL_KEYS - ACCOUNT_CREDENTIAL_KEYS
         if unrecognized:
             _logger.debug(
-                "Live credential has sibling keys cswap does not recognize "
+                "Live credential has sibling keys aswap does not recognize "
                 "(a newer Claude Code?), treating them as slot-owned: %s",
                 sorted(unrecognized),
             )
@@ -435,7 +435,7 @@ class CredentialStore:
         # out, the Keychain recovers and the cooldown lapses (verified
         # `unreadable is False`), then a write pins and it is True forever,
         # with `degraded=True`, "keychain unavailable" on every usage pass, and
-        # `cswap add` refused.
+        # `aswap add` refused.
         #
         # Cleared unconditionally rather than only when the cache was None: the
         # cache is a ROUTING decision (which backend to use, deliberately
@@ -517,7 +517,7 @@ class CredentialStore:
         this process keeps reading the file. With the file gone there is
         nothing left to protect — and nothing left to read. Claude Code removes
         the plaintext file when it stores a rotation in the Keychain, so on a
-        long-running process (menu bar, ``cswap auto``, TUI) the pin outlives
+        long-running process (menu bar, ``aswap auto``, TUI) the pin outlives
         its file within hours, and from then on every active read returns ""
         for the life of the process: usage is unknown, auto-switch fails over
         into a switch that refuses ("credential is empty"), and only a fresh
@@ -896,9 +896,9 @@ class CredentialStore:
         ):
             # Reads follow CLAUDE_CONFIG_DIR to its hashed item; writes would hit the default item.
             raise CredentialWriteError(
-                "cswap cannot safely switch while CLAUDE_CONFIG_DIR points at a custom "
+                "aswap cannot safely switch while CLAUDE_CONFIG_DIR points at a custom "
                 "profile: writes would go to the default Claude Code Keychain item, not "
-                "the one this profile reads. Unset CLAUDE_CONFIG_DIR, or use 'cswap run'."
+                "the one this profile reads. Unset CLAUDE_CONFIG_DIR, or use 'aswap run'."
             )
         if looks_like_api_key(credentials):
             self._write_managed_credentials(credentials.strip())
@@ -1765,7 +1765,7 @@ class CredentialStore:
     # may be the only live copy of some account's refresh token). Entries are
     # append-only base64 files with a JSON manifest carrying the
     # classification evidence; nothing consumes them automatically — recovery
-    # is the documented /login + `cswap add [--slot N]`, and these files are
+    # is the documented /login + `aswap add [--slot N]`, and these files are
     # forensic material for maintainers.
     #
     # Deliberately 0600 files on every platform, unlike the slot backups and

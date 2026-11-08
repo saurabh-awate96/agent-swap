@@ -1,7 +1,7 @@
 """Per-account policy CLI verbs (cli.py): setting, clearing and listing a
 per-account threshold, and refusing a bad value.
 
-`cswap threshold` mirrors `_alias_command` (pre-dispatched before the main
+`aswap threshold` mirrors `_alias_command` (pre-dispatched before the main
 parser, because the main parser's required mutually-exclusive group cannot hold
 a positional subcommand).
 
@@ -39,7 +39,7 @@ class PolicyCliBase(PolicyStoreBase):
 
     @staticmethod
     def _threshold(argv: list[str]) -> None:
-        """Drive `cswap threshold ...` at its pre-dispatch entry point."""
+        """Drive `aswap threshold ...` at its pre-dispatch entry point."""
         with patch("os.geteuid", return_value=1000, create=True):
             cli._threshold_command(argv)
 
@@ -59,7 +59,7 @@ class PolicyCliBase(PolicyStoreBase):
 
 
 class TestThresholdSet(PolicyCliBase):
-    """`cswap threshold 2 85` writes the override and confirms it."""
+    """`aswap threshold 2 85` writes the override and confirms it."""
 
     def test_it_writes_the_override_and_prints_a_confirmation(
         self, temp_home: Path, capsys
@@ -92,7 +92,7 @@ class TestThresholdSet(PolicyCliBase):
         assert self._bytes(s) == before
 
     def test_the_verb_is_reachable_through_main_dispatch(self, temp_home: Path, capsys):
-        """`cswap threshold ...` must be pre-dispatched like `alias`, not fall
+        """`aswap threshold ...` must be pre-dispatched like `alias`, not fall
         through to the main parser (which would reject the positional)."""
         self._fleet(temp_home)
         self._main(["threshold", "2", "85"])
@@ -138,7 +138,7 @@ class TestThresholdUnset(PolicyCliBase):
 
 
 class TestThresholdListing(PolicyCliBase):
-    """Bare `cswap threshold` lists the global default and every override."""
+    """Bare `aswap threshold` lists the global default and every override."""
 
     def test_it_names_the_global_default(self, temp_home: Path, capsys):
         self._fleet(temp_home)
@@ -173,7 +173,7 @@ class TestThresholdListing(PolicyCliBase):
 
 
 class TestIdentifierResolution(PolicyCliBase):
-    """`cswap threshold` accepts a number, an email, or an alias."""
+    """`aswap threshold` accepts a number, an email, or an alias."""
 
     def test_threshold_accepts_an_email(self, temp_home: Path, capsys):
         self._fleet(temp_home)

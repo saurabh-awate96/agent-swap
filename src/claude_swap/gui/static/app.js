@@ -1,15 +1,15 @@
 "use strict";
-// Same layout and wording as the terminal dashboard (cswap tui), plus the controls
+// Same layout and wording as the terminal dashboard (aswap tui), plus the controls
 // the terminal has on its keys. Every value is placed with textContent: emails,
 // aliases and org names come from outside this page and must never be parsed as
 // markup. Nothing here builds a command: it only sends plain values to the API.
 
 // Wording matches SENTINEL_NOTES in switcher.py.
 const STATUS = {
-  token_expired: "token expired — refreshed when needed (cswap list refreshes it now)",
+  token_expired: "token expired — refreshed when needed (aswap list refreshes it now)",
   api_key: "API key (no quota)",
   keychain_unavailable: "keychain unavailable — locked or in use; try again",
-  relogin_required: "re-login needed — refresh token dead; log in with Claude Code, then run: cswap add",
+  relogin_required: "re-login needed — refresh token dead; log in with Claude Code, then run: aswap add",
   foreign_credential: "live credential belongs to another account — a switch repairs it",
   no_credentials: "no stored credentials",
   unavailable: "usage unavailable",
@@ -340,19 +340,19 @@ function accountCard(p, a) {
   return card;
 }
 
-// The login the CLI is using right now, when cswap has not saved it.
+// The login the CLI is using right now, when aswap has not saved it.
 function unsavedCard(p, u) {
   const card = el("div", null, "acct");
   const head = header("·", null, u.email, "not saved", false);
   if (u.plan) head.append(el("span", "· " + u.plan, "badge"));
   card.append(head);
-  card.append(el("div", "· logged in now, but not saved in cswap yet", "note muted"));
+  card.append(el("div", "· logged in now, but not saved in aswap yet", "note muted"));
   if (writable()) {
     const acts = el("div", null, "acts");
     acts.append(button("save", () => act(PROVIDERS[p].base + "/save", {}), { primary: true, disabled: loginOpen() }));
     card.append(acts);
   } else {
-    card.append(el("div", "save it with: " + (p === "codex" ? "cswap codex add" : "cswap add"), "note muted"));
+    card.append(el("div", "save it with: " + (p === "codex" ? "aswap codex add" : "aswap add"), "note muted"));
   }
   return card;
 }

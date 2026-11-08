@@ -20,7 +20,7 @@ OAUTH_EXPIRY_BUFFER_MS = 5 * 60 * 1000
 OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token"
 OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
 
-# What ``claude setup-token`` grants (and what ``cswap add-token`` stores).
+# What ``claude setup-token`` grants (and what ``aswap add-token`` stores).
 # Such a token can run inference but cannot read the usage endpoint.
 SETUP_TOKEN_SCOPES = ("user:inference",)
 
@@ -1148,15 +1148,15 @@ def _persist(
         _logger.warning(
             "Refreshed OAuth token for account %s (%s) but failed to persist it: %r. "
             "The refresh token on disk may now be stale; if the next refresh fails "
-            "with invalid_grant, re-run `cswap --add-account` after logging in.",
+            "with invalid_grant, re-run `aswap --add-account` after logging in.",
             account_num,
             email,
             e,
         )
-        # stderr, not stdout: this runs inside ``cswap list --json`` and the
+        # stderr, not stdout: this runs inside ``aswap list --json`` and the
         # other ``--json`` commands, whose stdout is one machine-readable object.
         print_warning(
             f"Warning: failed to save refreshed token for account {account_num} ({email}). "
-            f"If the next refresh fails, re-run `cswap --add-account` after logging in.",
+            f"If the next refresh fails, re-run `aswap --add-account` after logging in.",
             file=sys.stderr,
         )

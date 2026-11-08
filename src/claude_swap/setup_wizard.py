@@ -1,4 +1,4 @@
-"""`cswap setup`: one guided screen that gets a fresh install fully working.
+"""`aswap setup`: one guided screen that gets a fresh install fully working.
 
 A status board (what is installed, how many accounts are saved) above a menu.
 Each menu entry runs the same code the matching command runs; nothing here
@@ -158,7 +158,7 @@ def _auto_switch_step(backup_root) -> None:
     except Exception as e:  # settings validates the range and wording
         warning(str(e))
         return
-    print(f"  {accent('Saved.')} Start it any time with: {bolded('cswap auto')}")
+    print(f"  {accent('Saved.')} Start it any time with: {bolded('aswap auto')}")
 
 
 def _dashboard_step(switcher) -> None:
@@ -236,11 +236,11 @@ def run(switcher, *, read_key=None) -> int:
 
     print(f"  {bolded('You are set.')} The commands you will use:")
     for cmd, what in (
-        ("cswap", "terminal dashboard"),
-        ("cswap gui", "web dashboard"),
-        ("cswap switch", "rotate to the next account"),
-        ("cswap auto", "switch for you before a limit hits"),
-        ("cswap codex switch", "same, for Codex"),
+        ("aswap", "terminal dashboard"),
+        ("aswap gui", "web dashboard"),
+        ("aswap switch", "rotate to the next account"),
+        ("aswap auto", "switch for you before a limit hits"),
+        ("aswap codex switch", "same, for Codex"),
     ):
         print(f"    {accent(cmd.ljust(20))}{dimmed(what)}")
     print()

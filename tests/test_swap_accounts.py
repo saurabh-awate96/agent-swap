@@ -1,4 +1,4 @@
-"""Tests for `cswap swap` (ClaudeAccountSwitcher.swap_accounts)."""
+"""Tests for `aswap swap` (ClaudeAccountSwitcher.swap_accounts)."""
 
 import errno
 import json
@@ -58,7 +58,7 @@ class TestSwapAccounts:
         self, temp_home: Path, sample_sequence_data: dict
     ):
         """Sequence stays sorted, so rotation and list order follow the new
-        numbers — the accounts genuinely trade places in `cswap list`."""
+        numbers — the accounts genuinely trade places in `aswap list`."""
         switcher = ClaudeAccountSwitcher()
         self._write(switcher, sample_sequence_data)
 
@@ -733,7 +733,7 @@ class TestSwapSessionProfileKeychain:
     On macOS the profile's credential lives in a keychain item whose service
     name is the hash of the profile DIR PATH
     (``session.keychain_service_name``), so ``os.replace`` on the dir leaves
-    the item behind at the old name. Nothing in cswap ever names that service
+    the item behind at the old name. Nothing in aswap ever names that service
     again -- ``purge`` enumerates the profile dirs that still exist -- so an
     entry missed here is permanent.
     """

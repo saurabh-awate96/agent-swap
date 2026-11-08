@@ -1,4 +1,4 @@
-# Web control panel: how `cswap gui` is secured
+# Web control panel: how `aswap gui` is secured
 
 Reference for the local web control panel. Everyday use is in the [README](../README.md#web-control-panel-gui).
 
@@ -34,20 +34,20 @@ Both providers expose the same actions as `/api/claude/<action>` and `/api/codex
 Every value is checked on the server and the page never sends anything that could reach a shell:
 
 - Account routes take a slot **number** (digits only), never an email, a path or a command.
-- `config` accepts four keys for Claude (`autoswitch.threshold`, `.weeklyThreshold`, `.strategy`, `.keepalive`) and only `autoswitch.threshold` for Codex; the value goes through the same validation as `cswap config set`.
-- `login` runs one fixed command, without a shell and with no input; the only variable part is an optional address checked against the same pattern `cswap add` uses. Signing in replaces the login in use, so an unsaved one is **saved first** (and the login is refused if that save fails). The command's output is read only for the sign-in link (https only) and the device code, which the page shows if no browser window opened. While one is open, other changes answer 409 (auto-switch and its settings stay available), the process is stopped after five minutes, and the new login is saved only if it exited cleanly.
+- `config` accepts four keys for Claude (`autoswitch.threshold`, `.weeklyThreshold`, `.strategy`, `.keepalive`) and only `autoswitch.threshold` for Codex; the value goes through the same validation as `aswap config set`.
+- `login` runs one fixed command, without a shell and with no input; the only variable part is an optional address checked against the same pattern `aswap add` uses. Signing in replaces the login in use, so an unsaved one is **saved first** (and the login is refused if that save fails). The command's output is read only for the sign-in link (https only) and the device code, which the page shows if no browser window opened. While one is open, other changes answer 409 (auto-switch and its settings stay available), the process is stopped after five minutes, and the new login is saved only if it exited cleanly.
 - `/api/add-token` takes the token in the request body; it is never logged and is removed from any message sent back.
 - Only one write runs at a time. No endpoint returns a token or credential: the page receives emails, aliases, plans and percentages.
 
-The Claude auto-switch started from the page is the same engine `cswap auto` runs, in this process. Codex's is a small engine of the same shape (it reads usage, and at the live account's line moves to the least-used enabled account under its own line, with a five-minute cooldown; a running Codex keeps its account until restarted). Both stop when the dashboard stops. Run auto-switch in one place only.
+The Claude auto-switch started from the page is the same engine `aswap auto` runs, in this process. Codex's is a small engine of the same shape (it reads usage, and at the live account's line moves to the least-used enabled account under its own line, with a five-minute cooldown; a running Codex keeps its account until restarted). Both stop when the dashboard stops. Run auto-switch in one place only.
 
 ## Logins that are not saved yet
 
-If the login Claude Code (or Codex) is using is not stored in cswap, the page lists it first, marked `[not saved]`, with its address (and plan, for Codex) only. It has a **save** button (read-only: it says which command to run). For Claude this comes from `.claude.json`, for Codex from `auth.json`: no keychain read and no network.
+If the login Claude Code (or Codex) is using is not stored in agent-swap, the page lists it first, marked `[not saved]`, with its address (and plan, for Codex) only. It has a **save** button (read-only: it says which command to run). For Claude this comes from `.claude.json`, for Codex from `auth.json`: no keychain read and no network.
 
 ## In the browser
 
-The page refreshes on a timer, so like the terminal dashboard it never refreshes an idle account's token: a lapsed one shows as "token expired" until you use that account or run `cswap list`.
+The page refreshes on a timer, so like the terminal dashboard it never refreshes an idle account's token: a lapsed one shows as "token expired" until you use that account or run `aswap list`.
 
 A strict `Content-Security-Policy` (own origin only, no inline script, no framing). Every value from outside the page (email, alias, organisation name) is placed with `textContent`, never parsed as HTML. There is no polling timer that rebuilds the page under your cursor: it refreshes data and re-renders in one step.
 

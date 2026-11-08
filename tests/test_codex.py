@@ -1,4 +1,4 @@
-"""`cswap codex`: account switching for the OpenAI Codex CLI.
+"""`aswap codex`: account switching for the OpenAI Codex CLI.
 
 Every test points CODEX_HOME at a tmp_path; nothing here touches a real
 ~/.codex, makes a network call or runs `codex`.
@@ -210,7 +210,7 @@ def test_unmanaged_live_login_is_refused_and_nothing_changes(env):
     stranger = env.login(make_auth(**C))
     roster = sw.seq.read_bytes()
 
-    with pytest.raises(SwitchError, match="cswap codex add"):
+    with pytest.raises(SwitchError, match="aswap codex add"):
         sw.switch("1")
     assert env.live_bytes() == stranger
     assert sw.seq.read_bytes() == roster
@@ -1056,7 +1056,7 @@ def test_an_api_key_login_goes_through_stdin_and_is_stored(env, fake_login):
 @pytest.mark.skipif(sys.platform == "win32", reason="the stand-in client is a POSIX script")
 def test_an_api_key_login_is_refused_while_the_live_login_is_unsaved(env, fake_login):
     sw = two_accounts(env)
-    env.login(make_auth(**C))                      # a login cswap has not stored
+    env.login(make_auth(**C))                      # a login aswap has not stored
     with pytest.raises(SwitchError):
         sw.add_from_api_key("sk-test-key-1234567890")
     assert "sk-test" not in env.live.read_text()

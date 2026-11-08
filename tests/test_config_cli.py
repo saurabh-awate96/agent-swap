@@ -1,4 +1,4 @@
-"""Tests for the `cswap config` subcommand (get/set/unset/list/path)."""
+"""Tests for the `aswap config` subcommand (get/set/unset/list/path)."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from claude_swap import cli
 
 
 def _run(argv: list[str], capsys) -> tuple[int, str, str]:
-    """Run `cswap config <argv>`; returns (exit_code, stdout, stderr).
+    """Run `aswap config <argv>`; returns (exit_code, stdout, stderr).
 
     Success returns normally from main() (no sys.exit), errors raise
     SystemExit — normalize both to an exit code.
@@ -259,7 +259,7 @@ class TestConfigMisc:
         assert "config" in capsys.readouterr().out
 
     def test_auto_picks_up_configured_threshold(self, temp_home, capsys):
-        """End-to-end: a value set via config drives `cswap auto`."""
+        """End-to-end: a value set via config drives `aswap auto`."""
         _run(["set", "autoswitch.threshold", "77"], capsys)
 
         captured = {}
@@ -294,7 +294,7 @@ class TestWeeklyThresholdConfig:
         assert code == 1
         assert "expects a number" in err
         # No number spells "unset"; the error names the command that does.
-        assert "cswap config unset autoswitch.weeklyThreshold" in err
+        assert "aswap config unset autoswitch.weeklyThreshold" in err
         assert not _settings_file(capsys).exists()
 
     def test_set_get_unset_round_trip(self, temp_home, capsys):

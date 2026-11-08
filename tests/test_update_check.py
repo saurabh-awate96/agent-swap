@@ -271,7 +271,7 @@ class TestCheckForUpdateMessage:
     def test_detected_method_non_windows_suggests_cswap_upgrade(
         self, mock_run, tmp_path, monkeypatch
     ):
-        # uv/pipx on macOS/Linux: cswap upgrade actually upgrades, so advertise it.
+        # uv/pipx on macOS/Linux: aswap upgrade actually upgrades, so advertise it.
         monkeypatch.setattr("claude_swap.update_check.CACHE_PATH", tmp_path / "cache.json")
         monkeypatch.setattr("claude_swap.update_check.sys.prefix", str(tmp_path))
         monkeypatch.delenv("UV_EXCLUDE_NEWER", raising=False)
@@ -281,7 +281,7 @@ class TestCheckForUpdateMessage:
         result = check_for_update("0.3.2")
 
         assert result is not None
-        assert "cswap upgrade" in result
+        assert "aswap upgrade" in result
         assert "uv tool upgrade" not in result
 
     @patch("claude_swap.update_check.sys.platform", "win32")
@@ -289,7 +289,7 @@ class TestCheckForUpdateMessage:
     def test_detected_method_windows_suggests_direct_command(
         self, mock_urlopen, tmp_path, monkeypatch
     ):
-        # Windows: cswap upgrade only prints, so point at the real command.
+        # Windows: aswap upgrade only prints, so point at the real command.
         monkeypatch.setattr("claude_swap.update_check.CACHE_PATH", tmp_path / "cache.json")
         monkeypatch.setattr("claude_swap.update_check._detect_install_method", lambda: "pipx")
         mock_urlopen.return_value = _make_pypi_response("0.4.0")
@@ -298,13 +298,13 @@ class TestCheckForUpdateMessage:
 
         assert result is not None
         assert "pipx upgrade agent-swap" in result
-        assert "cswap upgrade" not in result
+        assert "aswap upgrade" not in result
 
     @patch("claude_swap.update_check.urllib.request.urlopen")
     def test_unknown_method_suggests_cswap_instructions(
         self, mock_urlopen, tmp_path, monkeypatch
     ):
-        # Unknown install method: cswap upgrade can only show instructions.
+        # Unknown install method: aswap upgrade can only show instructions.
         monkeypatch.setattr("claude_swap.update_check.CACHE_PATH", tmp_path / "cache.json")
         monkeypatch.setattr("claude_swap.update_check._detect_install_method", lambda: None)
         mock_urlopen.return_value = _make_pypi_response("0.4.0")
@@ -312,7 +312,7 @@ class TestCheckForUpdateMessage:
         result = check_for_update("0.3.2")
 
         assert result is not None
-        assert "cswap upgrade` for upgrade instructions" in result
+        assert "aswap upgrade` for upgrade instructions" in result
         assert "uv tool upgrade" not in result
         assert "pipx upgrade" not in result
 
@@ -353,7 +353,7 @@ class TestUvInstall(_UvInstall):
     installed with --exclude-newer (a release cooldown) keeps that setting in
     the receipt, `uv tool upgrade` reapplies it, and a release younger than
     the cooldown is invisible to uv. Advertising it would send the user to
-    `cswap upgrade` only to read "Nothing to upgrade"."""
+    `aswap upgrade` only to read "Nothing to upgrade"."""
 
     @patch("claude_swap.update_check.urllib.request.urlopen")
     @patch("claude_swap.update_check.subprocess.run")
@@ -367,7 +367,7 @@ class TestUvInstall(_UvInstall):
 
         assert result is not None
         assert "(0.28.0)" in result
-        assert "cswap upgrade" in result
+        assert "aswap upgrade" in result
         cmd = self._uv_command(mock_run)
         assert cmd[:5] == ["/usr/bin/uv", "pip", "list", "--outdated", "--format"]
         assert cmd[-2:] == ["--exclude-newer", "P14D"]
@@ -428,7 +428,7 @@ class TestUvInstall(_UvInstall):
     @patch("claude_swap.update_check.urllib.request.urlopen")
     @patch("claude_swap.update_check.subprocess.run", side_effect=FileNotFoundError)
     def test_uv_missing_without_cooldown_asks_pypi(self, mock_run, mock_urlopen, tmp_path):
-        # `cswap auto --once` under cron or launchd runs without uv on PATH.
+        # `aswap auto --once` under cron or launchd runs without uv on PATH.
         # Nothing hides releases from this install, so PyPI's answer is the
         # one uv would have given, and it is cached like any other.
         mock_urlopen.return_value = _make_pypi_response("0.28.0")
@@ -539,7 +539,7 @@ class TestUvInstall(_UvInstall):
 class TestHeldBackReleaseNotice(_UvInstall):
     """`uv tool upgrade` prints "Nothing to upgrade" both when the install is
     current and when the newest release is younger than the cooldown, so
-    `cswap upgrade` asks uv what it would install without the cooldown and
+    `aswap upgrade` asks uv what it would install without the cooldown and
     explains the second case itself."""
 
     @patch("claude_swap.update_check.subprocess.run")

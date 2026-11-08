@@ -35,7 +35,7 @@ _logger = logging.getLogger("claude-swap")
 
 @dataclass(frozen=True)
 class AutoSwitchSettings:
-    """Policy knobs for the auto-switch engine (``cswap auto``).
+    """Policy knobs for the auto-switch engine (``aswap auto``).
 
     ``threshold`` is the switch line for the 5-hour window and, while
     ``weekly_threshold`` is unset, for every window: each of an account's
@@ -87,7 +87,7 @@ class UiSettings:
 
 @dataclass(frozen=True)
 class RunSettings:
-    """Defaults for ``cswap run`` (``run`` section); its flags override them.
+    """Defaults for ``aswap run`` (``run`` section); its flags override them.
 
     ``share_history``: sessions of every account read and write the one chat
     history in ``~/.claude``, so the account only decides whose quota is
@@ -101,7 +101,7 @@ class RunSettings:
 class UpdateSettings:
     """Update notification (``updates`` section). ``check`` turns the daily
     PyPI lookup behind the "newer version available" hint on or off;
-    ``cswap upgrade`` works either way."""
+    ``aswap upgrade`` works either way."""
 
     check: bool = True
 
@@ -111,14 +111,14 @@ class UsageSettings:
     """Usage collection preferences (``usage`` section).
 
     ``header_probe``: the usage endpoint never answers a setup-token account
-    (``cswap add-token``), so read its 5h/7d utilization from the rate-limit
+    (``aswap add-token``), so read its 5h/7d utilization from the rate-limit
     headers of a 1-output-token Haiku request instead. Each probe is a real,
     if tiny, request against that account's quota, sent at the normal poll
     cadence, so it is opt-in; off leaves such accounts at "usage unavailable".
 
     ``codex_probe``: Codex's own session files only hold what Codex wrote on
     this machine, so the live account's reading can be stale or, after a reset,
-    missing. When it is older than five minutes, cswap asks the real
+    missing. When it is older than five minutes, aswap asks the real
     ``codex app-server`` (OpenAI's own client, your own login) for the current
     5h/weekly numbers, at most once per five minutes. Off keeps Codex fully
     offline from cswap's side.
@@ -142,7 +142,7 @@ class SettingSpec:
     """Metadata for one user-tunable settings.json key.
 
     Single source of truth for bounds/choices: both the lenient clamp on load
-    (`_clamped`) and the strict validation in `cswap config set`
+    (`_clamped`) and the strict validation in `aswap config set`
     (`parse_setting_value`) read from here, so the two can't drift.
     """
 
@@ -179,7 +179,7 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         ),
         SettingSpec(
             "autoswitch", "intervalSeconds", "interval_seconds", "float", 15.0, 3600.0,
-            help="Poll interval for the cswap auto loop, in seconds",
+            help="Poll interval for the aswap auto loop, in seconds",
         ),
         SettingSpec(
             "autoswitch", "cooldownSeconds", "cooldown_seconds", "float", 0.0, 86400.0,
@@ -216,7 +216,7 @@ SETTING_SPECS: dict[str, SettingSpec] = {
         ),
         SettingSpec(
             "run", "shareHistory", "share_history", "bool",
-            help="cswap run shares one chat history across accounts",
+            help="aswap run shares one chat history across accounts",
         ),
         SettingSpec(
             "updates", "check", "check", "bool",
@@ -287,7 +287,7 @@ def _clamped(settings: AutoSwitchSettings) -> AutoSwitchSettings:
             if isinstance(value, str):
                 # Never bool(str): bool("false") is True, so a hand-edited
                 # quoted "false" would switch the flag on rather than off. A
-                # quoted boolean is read by the same words `cswap config set`
+                # quoted boolean is read by the same words `aswap config set`
                 # accepts; anything else is a bad type and reverts to the
                 # default like the other kinds do.
                 parsed = _BOOL_WORDS.get(value.strip().lower())
@@ -452,11 +452,11 @@ _BOOL_WORDS = {
 
 
 def parse_setting_value(spec: SettingSpec, raw_value: str):
-    """Strictly parse a CLI-provided string for `cswap config set`.
+    """Strictly parse a CLI-provided string for `aswap config set`.
 
     Unlike the forgiving clamp on load, out-of-range or mistyped values raise
     ConfigError so the user learns about the problem when setting the value,
-    not by silently degraded behavior at `cswap auto` time.
+    not by silently degraded behavior at `aswap auto` time.
     """
     if spec.kind == "bool":
         # Never bool(str): bool("false") is True.
@@ -478,7 +478,7 @@ def parse_setting_value(spec: SettingSpec, raw_value: str):
         if not value:
             raise ConfigError(
                 f"{spec.dotted} expects a non-empty value; use "
-                f"'cswap config unset {spec.dotted}' to clear it"
+                f"'aswap config unset {spec.dotted}' to clear it"
             )
         return value
     try:
@@ -488,7 +488,7 @@ def parse_setting_value(spec: SettingSpec, raw_value: str):
         # An optional number has no spelling for "unset" here; point at the
         # command that clears it instead of leaving "none" as a dead end.
         hint = (
-            f"; use 'cswap config unset {spec.dotted}' to clear it"
+            f"; use 'aswap config unset {spec.dotted}' to clear it"
             if spec.default is None
             else ""
         )
@@ -543,7 +543,7 @@ def _read_raw_for_write(path: Path) -> dict:
 
 
 def set_setting(backup_root: Path, dotted_key: str, raw_value: str):
-    """Validate and persist one key for `cswap config set`; returns the value.
+    """Validate and persist one key for `aswap config set`; returns the value.
 
     Writes only the given key (plus schemaVersion) — deliberately not
     ``save_settings``, which writes every known key and would freeze the
@@ -584,7 +584,7 @@ def effective_settings(backup_root: Path) -> list[tuple[SettingSpec, object, boo
     """(spec, effective value, explicitly set?) per key, in registry order.
 
     "Set" means the key is present in the raw file — an explicit value equal
-    to the default still counts — so `cswap config`'s "(default)" marker
+    to the default still counts — so `aswap config`'s "(default)" marker
     reflects the file, not value equality.
     """
     raw = _read_raw(settings_path(backup_root))
@@ -642,7 +642,7 @@ def atomic_write_json(path: Path, data: dict) -> None:
     - The temp file is created beside the RESOLVED target, so the rename
       stays on one filesystem and remains atomic (beside the LINK it would
       hit EXDEV whenever the target lives on another mount).
-    - The 0700 hardening stays on the directory cswap owns. Applying it to
+    - The 0700 hardening stays on the directory aswap owns. Applying it to
       the resolved parent would narrow a directory belonging to something
       else, and raise ``PermissionError`` outright when that parent is not
       ours to chmod. The written file still gets 0600, and ``mkstemp``

@@ -178,7 +178,7 @@ def usage_rows(
 
 
 def _append_plan(text: Text, acc: AccountSnapshot, gap: str, palette) -> None:
-    """``· Ultra`` after the header — the same marker ``cswap list`` prints:
+    """``· Ultra`` after the header — the same marker ``aswap list`` prints:
     a lapsed subscription is a highlighted ``Free`` rather than an appended
     "expired", and the age follows once the plan has gone two TTLs without
     refreshing."""
@@ -254,7 +254,7 @@ def account_card_text(
         style = palette.muted if sentinel == USAGE_API_KEY else palette.sev_warn
         marker = "·" if sentinel == USAGE_API_KEY else "⚠"
         text.append(f"{marker} {data.sentinel_label(sentinel)}", style=style)
-        # Same supplementary line `cswap list` prints: the last good
+        # Same supplementary line `aswap list` prints: the last good
         # measurement behind the sentinel (API-key accounts have no quota to
         # have "seen").
         if sentinel != USAGE_API_KEY:

@@ -308,7 +308,7 @@ class TestFormatting:
         # active account, not that the user must re-login.
         assert (
             tui_data.sentinel_label(USAGE_TOKEN_EXPIRED)
-            == "token expired — refreshed when needed (cswap list refreshes it now)"
+            == "token expired — refreshed when needed (aswap list refreshes it now)"
         )
         from claude_swap.switcher import SENTINEL_NOTES
 
@@ -318,7 +318,7 @@ class TestFormatting:
 
     def test_sentinel_card_shows_last_seen_like_cswap_list(self):
         # A sentinel is a live overlay — the entry can still carry the last
-        # good measurement, and `cswap list` prints it as a "last seen" line.
+        # good measurement, and `aswap list` prints it as a "last seen" line.
         # The card must too (except for API-key accounts, which have no quota).
         from claude_swap.tui.widgets import account_card_text
 
@@ -329,7 +329,7 @@ class TestFormatting:
             age_s=720.0,
         )
         card = account_card_text(make_account(1, active=True, entry=entry), 80).plain
-        assert "token expired — refreshed when needed (cswap list refreshes it now)" in card
+        assert "token expired — refreshed when needed (aswap list refreshes it now)" in card
         assert "last seen 53% used" in card
 
         no_history = account_card_text(
@@ -398,7 +398,7 @@ class TestSnapshotSource:
 
     def test_every_pass_is_store_governed(self, tmp_path):
         # Pacing lives in the usage store (poll plans + freshness + atomic
-        # reservation), so every take is the same on-demand pass `cswap list`
+        # reservation), so every take is the same on-demand pass `aswap list`
         # runs — including the user's explicit refresh, which cannot bypass
         # the store's per-account cadence.
         fake, source = self._source(tmp_path)

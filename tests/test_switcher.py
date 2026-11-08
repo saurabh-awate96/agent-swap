@@ -441,7 +441,7 @@ class TestAliasCommand:
     def test_rename_via_existing_alias_identifier(
         self, temp_home: Path, sample_sequence_data: dict
     ):
-        """cswap alias <old> <new> — identifier can itself be an alias."""
+        """aswap alias <old> <new> — identifier can itself be an alias."""
         switcher = ClaudeAccountSwitcher()
         self._write(switcher, sample_sequence_data)
         switcher.set_alias("1", "dev")
@@ -1253,7 +1253,7 @@ class TestFetchAccountUsageSessionProfile:
 
 class TestBackgroundCollectionNeverRefreshesIdleSlots:
     """Unattended collection (auto engine, dashboards) must not POST a
-    refresh for an idle slot; explicit callers (`cswap list`) still may."""
+    refresh for an idle slot; explicit callers (`aswap list`) still may."""
 
     def _idle(self, switcher, token_expiry_s: float):
         creds = _oauth_creds("sk-idle", token_expiry_s)
@@ -1543,7 +1543,7 @@ class TestAdoptSessionCredential:
         assert switcher.read_account_credentials("2", self.EMAIL) == backup
 
     def test_stale_marked_profile_is_not_adopted(self, temp_home: Path):
-        """The backup moved under this profile while it was live; cswap has
+        """The backup moved under this profile while it was live; aswap has
         already decided the profile re-bootstraps, and the marker stays."""
         backup = _oauth_creds("sk-backup", -3600)
         profile = _oauth_creds("sk-session", 7200)
@@ -1786,7 +1786,7 @@ class TestListAccountsUsage:
         """While Claude Code owns the active account, list never writes live creds.
 
         Refreshing the live credential in parallel would race with Claude Code's own
-        refresh (which coordinates via a ~/.claude/ lockfile cswap doesn't honor) and
+        refresh (which coordinates via a ~/.claude/ lockfile aswap doesn't honor) and
         could trip refresh-token reuse detection. The active row stays hands-off
         (is_active=True) whenever an owner is detected; only inactive backups refresh.
         """
@@ -2583,7 +2583,7 @@ class TestActiveAccountRefresh:
     def test_filelock_contention_defers_instead_of_raising(
         self, temp_home: Path, mock_claude_config: Path, sample_sequence_data: dict
     ):
-        """cswap's own account FileLock contending (another cswap operation in
+        """cswap's own account FileLock contending (another aswap operation in
         flight) must defer like a CC lock timeout — _fetch_account_usage's
         never-raises contract is what keeps the collect pass alive."""
         from claude_swap.exceptions import LockError
@@ -3602,7 +3602,7 @@ class TestActiveAccountRefresh:
     def test_foreign_live_credential_under_the_lock_is_never_consumed(
         self, temp_home: Path, mock_claude_config: Path, sample_sequence_data: dict
     ):
-        """TOCTOU guard: a `cswap switch` completing between the pre-lock
+        """TOCTOU guard: a `aswap switch` completing between the pre-lock
         provenance check and lock acquisition replaces the live credential
         with another slot's. The under-lock re-read must re-verify lineage —
         POSTing the foreign grant would rotate the other slot's lineage and
@@ -4596,7 +4596,7 @@ class TestSwitchToSelfSlotAndForce:
         assert live["creds"] == self.LIVE_1
         out = capsys.readouterr().out
         assert "Already on" in out and "Account-1" in out
-        assert "cswap --switch-to 1 --force" in out
+        assert "aswap --switch-to 1 --force" in out
 
     def test_force_self_activation_restores_imported_creds(
         self,
@@ -5717,7 +5717,7 @@ class TestPurgeQuarantineWarning:
         assert not run_dir.exists()
 
     def test_purge_leaves_the_shared_history_lock(self, temp_home: Path):
-        """The lock in ``~/.claude`` is shared with every cswap store using
+        """The lock in ``~/.claude`` is shared with every aswap store using
         this home. Unlinking it under a launch that holds it lets the next
         one take a fresh copy at the same time, so purge must not tidy it
         away with the rest."""
@@ -7742,7 +7742,7 @@ class TestProvenanceGuard:
         self, temp_home, mock_claude_config, sample_sequence_data,
     ):
         """Resolved to no managed slot: preserve, warn, proceed — the message
-        can't name a slot, so it recommends a plain `cswap add`."""
+        can't name a slot, so it recommends a plain `aswap add`."""
         switcher, creds_store, configs_store = self._setup_two_accounts(
             temp_home, sample_sequence_data,
         )
@@ -8852,7 +8852,7 @@ class TestSharedOAuthCredentialPreservation:
     def test_account_bound_and_unknown_siblings_stay_target_owned(
         self, temp_home
     ):
-        # trustedDeviceToken is enrolled per-account, and a field cswap does
+        # trustedDeviceToken is enrolled per-account, and a field aswap does
         # not recognize could be too — neither may cross an account switch.
         # Only the SHARED_CREDENTIAL_KEYS allowlist is taken from live.
         switcher = ClaudeAccountSwitcher()
@@ -9456,7 +9456,7 @@ class TestAddAccountAlias:
         assert data["accounts"]["1"]["alias"] == "dev"
 
     def test_readd_without_alias_preserves_existing(self, temp_home: Path):
-        """Re-running `cswap add` (refresh-in-place) without --alias must not
+        """Re-running `aswap add` (refresh-in-place) without --alias must not
         wipe a previously set alias."""
         fake_creds = json.dumps({"claudeAiOauth": {"accessToken": "tok"}})
         switcher = self._config_switcher(temp_home, "a@x.com")
@@ -9520,7 +9520,7 @@ class TestAddAccountAlias:
 
 
 class TestDisableEnableAccount:
-    """`cswap disable`/`cswap enable`: park a managed account out of automatic
+    """`aswap disable`/`aswap enable`: park a managed account out of automatic
     rotation without removing it. Disabled slots are skipped by the auto-switch
     engine, bare `switch` rotation, and the usage-aware strategies, but stay
     valid explicit `switch <num|email>` targets."""
@@ -9720,7 +9720,7 @@ class TestDisableEnableAccount:
     def test_remove_does_not_write_back_a_stale_active_pointer(
         self, temp_home, monkeypatch
     ):
-        """`cswap remove` reads sequence.json, waits at a y/n prompt, then
+        """`aswap remove` reads sequence.json, waits at a y/n prompt, then
         wrote that old copy back -- reverting a switch made meanwhile."""
         s = self._setup(temp_home)
         for n, e in ((1, "a@example.com"), (2, "b@example.com"), (3, "c@example.com")):
@@ -9737,7 +9737,7 @@ class TestDisableEnableAccount:
     def test_rotation_skips_slot_with_dead_refresh_token(self, temp_home, capsys):
         """active=1, slot 2 struck as refresh-token-dead — bare switch lands on 3.
 
-        `cswap auto` already drops such a slot; the manual rotation used to
+        `aswap auto` already drops such a slot; the manual rotation used to
         land on it, which works for minutes (the access token is still good)
         and then leaves claude on /login.
         """
@@ -9812,10 +9812,10 @@ class TestDisableEnableAccount:
         assert s.is_account_disabled("2") is False
 
     def test_slot_refresh_keeps_account_parked(self, temp_home):
-        """`cswap add --slot N` on the account already in slot N is the
+        """`aswap add --slot N` on the account already in slot N is the
         documented way to recover a dead login; it refreshes the credential
         rather than re-registering the account, so the park must survive it.
-        Bare `cswap add` (refresh in place) already keeps the flag."""
+        Bare `aswap add` (refresh in place) already keeps the flag."""
         s = self._setup(temp_home)
         self._seed(s, 1, "a@example.com")
         self._seed(s, 2, "b@example.com")
@@ -9988,7 +9988,7 @@ class TestDegradedReadProvenance:
         store._pin_file_mode(residual_cleared=True)
         assert store._read_active_credentials().degraded is False, (
             "a self-pinned file mode reads as a degraded keychain read, so "
-            "cswap stops refreshing the active token for this process"
+            "aswap stops refreshing the active token for this process"
         )
 
     def _macos_switcher(self) -> ClaudeAccountSwitcher:
@@ -10074,7 +10074,7 @@ class TestDegradedReadProvenance:
         self, temp_home: Path, mock_claude_config: Path,
         sample_sequence_data: dict, monkeypatch,
     ):
-        """`cswap --status` must arm the same guard the collect pass does.
+        """`aswap --status` must arm the same guard the collect pass does.
 
         _build_accounts_info copies BOTH active.keychain_unavailable and
         active.degraded onto the switcher; _active_account_usage copies only
@@ -10429,7 +10429,7 @@ class TestSwitchUnreadableBackup:
         self, temp_home: Path, sample_sequence_data: dict, monkeypatch,
         block_real_keychain,
     ):
-        """The SAME promise on the ordinary `cswap switch`.
+        """The SAME promise on the ordinary `aswap switch`.
 
         _perform_switch has two target-read sites. The M1 test above lands on
         the DIRECT-ACTIVATION branch, because its fixture's live identity
@@ -10715,7 +10715,7 @@ class TestConsumeGate:
         """A remedy named in an error message has to be a remedy.
 
         Failing closed on corrupt+orphans is only defensible because the
-        operator has a way out, and the message names one: `cswap unclaimed`
+        operator has a way out, and the message names one: `aswap unclaimed`
         to see them, `--purge` to drop one. Both run against a CORRUPT
         manifest, so the mutator must NOT refuse there — which is why its
         refusal is scoped to `unreadable`. Walk the whole exit rather than
@@ -10728,7 +10728,7 @@ class TestConsumeGate:
 
         # 1. the operator can SEE the orphan, by glob, with no readable rows
         listed = s.list_unclaimed_credentials()
-        assert listed, "corrupt manifest hid the orphan from `cswap unclaimed`"
+        assert listed, "corrupt manifest hid the orphan from `aswap unclaimed`"
 
         # 2. and can DROP it — the mutator does not refuse on corrupt
         for entry_id in list(listed):
@@ -10825,7 +10825,7 @@ class TestConsumeGate:
         does not "self-heal at the cost of one POST" — it returns
         invalid_grant, and the gate returns before any manifest write, so
         nothing is ever set aside. The exit is the operator's
-        (`cswap unclaimed --purge`, which still lists orphans by glob), not a
+        (`aswap unclaimed --purge`, which still lists orphans by glob), not a
         POST that strikes a live account.
         """
         s = self._switcher(sample_sequence_data)
@@ -10935,7 +10935,7 @@ class TestConsumeGate:
         store, so an absent re-read really does mean removed.
         """
         s = self._switcher(sample_sequence_data)
-        # No stored credential for slot 1: `cswap remove` landed first.
+        # No stored credential for slot 1: `aswap remove` landed first.
         posted = []
 
         def mock_refresh(credentials, **kw):
@@ -11098,7 +11098,7 @@ class TestStrikeUnbindsInCollector:
 
 
 class TestStoreResolutionParity:
-    """M4: when CC resolves its credential store somewhere cswap does not
+    """M4: when CC resolves its credential store somewhere aswap does not
     mirror, consuming/mutating operations refuse instead of operating on a
     store CC no longer uses."""
 
@@ -11466,7 +11466,7 @@ class TestPermanentlyUnreadableStashRow:
         from claude_swap.oauth import _DETERMINISTIC_REFRESH_ERRORS
         from claude_swap.switcher import ERROR_NOTES
 
-        assert "cswap unclaimed" in ERROR_NOTES["stash-unreadable"]
+        assert "aswap unclaimed" in ERROR_NOTES["stash-unreadable"]
         assert "stash-unreadable" in _DETERMINISTIC_REFRESH_ERRORS
 
 
@@ -11680,7 +11680,7 @@ class TestGateUltraReviewFixes:
         The loser used to return "transient", which autoswitch renders as
         "could not freshen any candidate (network?)" — sending the user to
         check a connection that is fine, for a condition no network change can
-        affect. On a machine where the collector and a manual `cswap switch`
+        affect. On a machine where the collector and a manual `aswap switch`
         overlap this is routine, not an edge.
         """
         s = self._switcher(sample_sequence_data)
@@ -12418,7 +12418,7 @@ class TestGateUltraReviewFixes:
                 "DEFECT: the invalidation was denied and NO stale marker "
                 "landed — the marker's own write target was the directory "
                 "that denied it. The profile's token is unexpired, so the "
-                "local reuse check passes and `cswap run` launches claude on "
+                "local reuse check passes and `aswap run` launches claude on "
                 "the spent generation, silently"
             )
         else:
@@ -12972,7 +12972,7 @@ class TestUnreadableBackupIsNotAbsent:
         self, temp_home: Path, sample_sequence_data: dict, monkeypatch,
         block_real_keychain,
     ):
-        """``cswap import`` must not overwrite a healthy slot it cannot read.
+        """``aswap import`` must not overwrite a healthy slot it cannot read.
 
         ``_slot_token_dead``'s ``stored`` read is plain. Unreadable → ``""``
         → ``credential_fingerprint("")`` is None → ``token_dead`` skips the

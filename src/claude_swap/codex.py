@@ -1,4 +1,4 @@
-"""OpenAI Codex CLI account switching (``cswap codex ...``).
+"""OpenAI Codex CLI account switching (``aswap codex ...``).
 
 Switching is local files only: no OpenAI request, no token refresh, and never
 ``codex login`` / ``codex logout`` (logout revokes the login server-side). The one
@@ -376,7 +376,7 @@ class Codex:
         if mode != "file":
             raise ConfigError(
                 f'Codex is set to cli_auth_credentials_store = "{mode}"; '
-                'cswap codex supports "file" only'
+                'aswap codex supports "file" only'
             )
 
     def _load(self) -> dict:
@@ -486,7 +486,7 @@ class Codex:
     def add(self, slot: int | None = None, alias: str | None = None, yes: bool = False):
         """Store the live login in a slot. Returns ``(slot, created)``."""
         self._require_file_store()
-        missing = SwitchError("No Codex login found. Run `codex login` first, then `cswap codex add`.")
+        missing = SwitchError("No Codex login found. Run `codex login` first, then `aswap codex add`.")
         if not self._read_live():
             raise missing
         self.root.mkdir(parents=True, exist_ok=True)
@@ -583,7 +583,7 @@ class Codex:
         if not key or len(key) > 2048 or "\n" in key.strip():
             raise ConfigError("paste a single API key")
         if self.status().get("state") == "unmanaged":
-            raise SwitchError("The live Codex login is not saved yet; save it first (cswap codex add).")
+            raise SwitchError("The live Codex login is not saved yet; save it first (aswap codex add).")
         binary = shutil.which("codex")
         if binary is None:
             raise ConfigError("Codex (`codex`) was not found on PATH")
@@ -723,7 +723,7 @@ class Codex:
         """Make ``target`` (default: next) the live login. Returns ``(slot, changed)``."""
         self._require_file_store()
         if not self._load()["accounts"]:
-            raise SwitchError("No Codex accounts yet. Log in with Codex, then run `cswap codex add`.")
+            raise SwitchError("No Codex accounts yet. Log in with Codex, then run `aswap codex add`.")
         self.root.mkdir(parents=True, exist_ok=True)
         with self._locked():
             data = self._load()
@@ -741,7 +741,7 @@ class Codex:
                     if out is None:
                         raise SwitchError(
                             "The live Codex login is not managed by cswap, so switching would drop it. "
-                            "Run `cswap codex add` first."
+                            "Run `aswap codex add` first."
                         )
                     self._guard(auth, force)
                     self._capture(out, live, auth)

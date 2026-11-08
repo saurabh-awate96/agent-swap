@@ -123,7 +123,7 @@ _FSYNC_UNSUPPORTED = frozenset(
 # Module-level so a test can pin the fallback without touching ``os.path``.
 _RESOLVE_STRICT = getattr(os.path, "ALLOW_MISSING", True)
 
-# NAME_MAX is 255 bytes on every filesystem cswap meets, and ``mkstemp`` adds
+# NAME_MAX is 255 bytes on every filesystem aswap meets, and ``mkstemp`` adds
 # eight random characters plus ``.tmp`` to the prefix. A prefix carrying the
 # whole destination name would push a legal 243+ character destination over
 # the limit -- ENAMETOOLONG at the temp, for a file that itself fits. Keep
@@ -338,7 +338,7 @@ def make_dir_link(target: os.PathLike | str, link: os.PathLike | str) -> None:
 def make_file_link(target: os.PathLike | str, link: os.PathLike | str) -> None:
     """Put a symlink at ``link`` leading to the file ``target``.
 
-    The one link cswap makes that needs a privilege on Windows: Developer
+    The one link aswap makes that needs a privilege on Windows: Developer
     Mode, or an elevated token. ``can_symlink`` says so in advance.
     """
     os.symlink(target, link)
