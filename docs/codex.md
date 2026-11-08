@@ -21,9 +21,11 @@ Each slot holds the **exact bytes** of `auth.json` as Codex wrote it, never re-s
 
 Because refresh tokens are single use, a login that exists in two places will break. Do not `codex logout` a stored account: it revokes the login server-side.
 
-## A running Codex does not notice
+## A running Codex does not notice, unless it was started with `aswap codex run`
 
-A Codex process loads `auth.json` when it starts. A switch affects processes started afterwards; sessions already open keep their account until restarted.
+A Codex process loads `auth.json` when it starts and keeps that account; nothing outside the process can change it (the app-server's login calls need a browser login or are marked internal-only). So a plain `codex` that was already running keeps its account after a switch.
+
+`aswap codex run` closes that gap. It runs Codex as a child in the same terminal and watches a marker file that every real switch writes (from the dashboard, `aswap codex switch` or auto-switch). When the account changes it stops Codex and starts `codex resume <session id>` on the new login: same terminal, same conversation, nothing to type. The session is found by working directory among the rollout files written since it started; if none exists yet it simply restarts. The answer that was streaming at that moment is interrupted, and only `resume <id>` is passed on restart, not the options of the first start. To use it everywhere: `alias codex='aswap codex run'`. POSIX only for now.
 
 ## Usage numbers
 

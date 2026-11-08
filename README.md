@@ -310,7 +310,7 @@ aswap codex remove work
 
 - **Always `aswap codex add` the current login before running `codex login` for another.** A login aswap does not know is refused, never overwritten.
 - **Never `codex logout` a stored account.** It revokes the login on OpenAI's side, so the stored copy stops working.
-- **Running Codex sessions keep their account until restarted.** A switch affects Codex processes started afterwards.
+- **A plain running Codex keeps its account until restarted.** Start it with `aswap codex run` (or `alias codex='aswap codex run'`) and a switch reaches it at once: it reopens on the new login in the same terminal and resumes the same conversation. [How](docs/codex.md#a-running-codex-does-not-notice-unless-it-was-started-with-aswap-codex-run)
 - Usage comes from Codex's own session files (`sessions/**/rollout-*.jsonl`), so an idle account shows the numbers from its last session. Use on another device or in the Codex app is not in those files, so these numbers can be lower than OpenAI's own. Only `cli_auth_credentials_store = "file"` (the default) is supported.
 
 ### Other commands

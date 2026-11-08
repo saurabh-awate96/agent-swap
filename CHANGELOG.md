@@ -11,6 +11,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 
 ### Added
 
+- **`aswap codex run`**: Codex that follows an account switch. It runs Codex as a child in the same terminal and, when the account is switched from anywhere, reopens it on the new login with `codex resume` of the same conversation. The Codex panel says how many sessions do this and warns about a Codex running outside it. POSIX only.
 - **Claude and Codex are equal in the control panel**: two panels with the same parts in the same order and the same actions (`/api/<provider>/<action>`, pinned by a test). Codex gained alias, disable/enable, per-account threshold, `next-available`, an auto-switch engine and API-key login; `aswap codex alias|disable|enable|threshold` exist on the command line too.
 - **Add account works on its own**: it saves the login in use first, takes an optional email for Claude, offers `codex login --device-auth`, and shows the sign-in link and device code in the panel when no browser window opens.
 - **`aswap setup`**: a guided first-run screen. Checks Claude Code and Codex, shows how many logins are saved, and walks through saving the current login, adding more accounts, saving a Codex login, picking the auto-switch point and opening a dashboard. Arrow keys, or a number.
