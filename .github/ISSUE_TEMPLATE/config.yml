@@ -1,5 +1,5 @@
 blank_issues_enabled: true
 contact_links:
-  - name: 📖 Tips & how it works
-    url: https://github.com/saurabh-awate96/agent-swap#tips
-    about: Restart-after-switch behavior, macOS Keychain caching, and other common gotchas are covered in the README.
+  - name: 📖 Restart-after-switch and other common questions
+    url: https://github.com/saurabh-awate96/agent-swap#do-i-need-to-restart-after-switching
+    about: Restart behavior and macOS Keychain caching are covered in the README; the reference pages are in docs/.

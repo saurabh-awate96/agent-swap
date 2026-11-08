@@ -1,6 +1,6 @@
 # Menu bar app (macOS): how it runs
 
-Reference for `aswap menubar`. Installing it and everyday use are in the [README](../README.md#menu-bar-macos).
+Reference for `aswap menubar`, the optional macOS menu bar app. Installing it and everyday use are in the [README](../README.md#the-menu-bar-macos). Install the `menubar` extra first (`uv tool install 'agent-swap[menubar] @ git+https://github.com/saurabh-awate96/agent-swap'`); it needs macOS and does nothing on other platforms.
 
 ## Lifecycle
 
