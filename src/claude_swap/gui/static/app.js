@@ -38,7 +38,7 @@ if (location.hash) history.replaceState(null, "", location.pathname);
 const $ = (id) => document.getElementById(id);
 const state = { claude: null, codex: null, auto: { claude: null, codex: null } };
 let settings = null, busy = false, lastSig = "", seq = 0, holdUntil = 0, lastGood = null, lastJobKey = null;
-let filter = "all", selected = null;            // selected = "claude:2" / "codex:1"
+let filter = "all", selected = null, linkToasted = null;            // selected = "claude:2" / "codex:1"
 const seen = {};                                 // row key -> its numbers at the last redraw (for the flash)
 const log = [];
 
@@ -481,6 +481,26 @@ async function autoSettings(p) {
 
 // -- rendering: banners -------------------------------------------------------------------------------------------
 
+// Copy from a click (the browser allows it then); the old way for browsers without the API.
+async function copyText(text, what) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const t = el("textarea");
+    t.value = text;
+    t.setAttribute("readonly", "");
+    t.style.position = "fixed";
+    t.style.opacity = "0";
+    document.body.append(t);
+    t.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch (err) { ok = false; }
+    t.remove();
+    if (!ok) { say("Could not copy the " + what + ". Select it and copy it by hand.", true); return; }
+  }
+  say(what.charAt(0).toUpperCase() + what.slice(1) + " copied to your clipboard.", false);
+}
+
 function isHttps(u) { try { return new URL(u).protocol === "https:"; } catch (e) { return false; } }
 
 function renderBanners(conn) {
@@ -494,9 +514,13 @@ function renderBanners(conn) {
     if (job.url && isHttps(job.url)) {
       const a = el("a", "Open the sign-in page");
       a.href = job.url; a.target = "_blank"; a.rel = "noopener noreferrer";
-      b.append(a);
+      b.append(a, btn("Copy link", "ghost small", () => copyText(job.url, "sign-in link")));
     }
-    if (job.code) { const c = el("span", "Code "); c.append(el("span", job.code, "code")); b.append(c); }
+    if (job.code) {
+      const c = el("span", "Code ");
+      c.append(el("span", job.code, "code"));
+      b.append(c, btn("Copy code", "ghost small", () => copyText(job.code, "code"), { title: "Copy the device code" }));
+    }
     box.append(b);
   }
 }
@@ -672,6 +696,13 @@ function render() {
   if (selected && !rows.some((m) => keyOf(m) === selected)) selected = null;
   $("rows").replaceChildren(...rows.map(accountRow));
   if (!rows.length) $("rows").append(el("div", "No accounts yet. Use + Add account.", "empty row"));
+  const live = [state.claude, state.codex].map((d) => d && d.job).find((j) => j && j.state === "running" && j.url);
+  if (live && live.url !== linkToasted) {
+    linkToasted = live.url;
+    say(live.copied
+      ? "Sign-in link copied to your clipboard. Open it in the browser where the account you want is signed in."
+      : "Sign-in link ready: use Copy link in the banner to paste it into the browser you want.", false);
+  }
   const job = [state.claude, state.codex].map((d) => d && d.job).find((j) => j && j.state !== "running");
   const jk = job ? job.kind + job.state + job.message : "";
   if (job && jk !== lastJobKey && lastJobKey !== null) say(job.message, job.state === "error");

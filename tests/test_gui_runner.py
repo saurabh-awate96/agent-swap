@@ -10,6 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from claude_swap.gui.runner import AutoRunner, LoginJob
+from claude_swap.gui.runner import copy_to_clipboard as REAL_COPY  # before conftest stubs the name
 
 
 def wait_for(job, state, timeout=10):
@@ -155,6 +156,21 @@ class TestLoginOutput:
         assert snap["url"] == "https://auth.example.com/device?x=1"   # https only, trailing text cut
         assert snap["code"] == "ABCD-12345"
 
+    def test_the_link_is_copied_to_the_clipboard_once(self, _no_real_clipboard):
+        job = LoginJob()
+        script = "print('go to https://auth.example.com/a'); print('or https://auth.example.com/b')"
+        job.start("codex", [sys.executable, "-c", script], lambda: "ok")
+        snap = wait_for(job, "done")
+        assert snap["copied"] is True and _no_real_clipboard == ["https://auth.example.com/a"]
+
+    def test_a_clipboard_that_fails_is_reported_not_raised(self):
+        def broken(text):
+            raise OSError("no clipboard")
+
+        job = LoginJob(copier=broken)
+        job.start("codex", [sys.executable, "-c", "print('https://auth.example.com/x')"], lambda: "ok")
+        assert wait_for(job, "done")["copied"] is False
+
     def test_a_login_that_prints_nothing_has_neither(self):
         job = LoginJob()
         job.start("claude", [sys.executable, "-c", "pass"], lambda: "ok")
@@ -239,3 +255,23 @@ class TestCodexAutoRunner:
         r = self.runner([self.row(1, None, active=True), self.row(2, 10)])
         r.tick(90)
         assert r.calls == []
+
+
+
+class TestCopyToClipboard:
+    def test_the_first_available_tool_gets_the_text_on_stdin(self, monkeypatch):
+        import claude_swap.gui.runner as runner_mod
+
+        real = REAL_COPY
+        calls = []
+        monkeypatch.setattr(runner_mod.shutil, "which", lambda name: "/bin/x" if name in ("xclip",) else None)
+        monkeypatch.setattr(runner_mod.subprocess, "run", lambda argv, **kw: calls.append((argv, kw["input"])))
+        assert real("https://auth.example.com/x") is True
+        assert calls == [(["xclip", "-selection", "clipboard"], "https://auth.example.com/x")]
+
+    def test_no_tool_means_false(self, monkeypatch):
+        import claude_swap.gui.runner as runner_mod
+
+        real = REAL_COPY
+        monkeypatch.setattr(runner_mod.shutil, "which", lambda name: None)
+        assert real("x") is False

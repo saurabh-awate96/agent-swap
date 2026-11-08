@@ -566,6 +566,15 @@ def block_real_oauth_profile_fetch(request, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_clipboard(monkeypatch):
+    """No test may write the developer's clipboard (the sign-in link copy uses pbcopy & co).
+    The stub records what would have been copied."""
+    copied = []
+    monkeypatch.setattr("claude_swap.gui.runner.copy_to_clipboard", lambda text: copied.append(text) or True)
+    return copied
+
+
+@pytest.fixture(autouse=True)
 def _no_real_codex_client(monkeypatch):
     """No test may start the real ``codex app-server``: it would make a network
     call with the developer's own Codex login. Tests of the live reading patch

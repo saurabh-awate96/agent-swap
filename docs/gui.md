@@ -56,7 +56,7 @@ One table for both products, with filter tabs **All · Claude Code · Codex** (k
 - **Claude Code**: *Sign in with the browser* (an optional email pre-fills it; the login in use is saved first), *Save the login in use*, and *Use a token or API key*.
 - **Codex**: *Sign in with the browser* (the login in use is saved first, unless OpenAI revoked it), *Sign in with a code* (device login, for a machine without a browser), *Save the login in use* (disabled while the login in use is revoked), and *Use an OpenAI API key* (handed to `codex` on standard input).
 
-While a sign-in is open, a banner shows the product, the message, **Open the sign-in page** when the client printed a link, and the device code.
+While a sign-in is open, a banner shows the product, the message, **Open the sign-in page** and **Copy link** when the client printed a link, and the device code with a **Copy code** button. The moment the link appears it is also copied to your clipboard (by the dashboard process, with `pbcopy`, `wl-copy`, `xclip`, `xsel` or `clip`, whichever exists) and a toast says so, so you can paste it into the browser profile of the account you want to sign in with. If no clipboard tool exists the toast tells you to use **Copy link**.
 
 ### Activity and status
 
@@ -128,7 +128,7 @@ The sign-in starts `claude auth login [--email]` for Claude, and `codex login` o
 
 - **Accounts** are named by slot **number** (digits only, up to three), never by email, alias, path or command.
 - **Settings** are limited to four keys for Claude (`autoswitch.threshold`, `.weeklyThreshold`, `.strategy`, `.keepalive`) and to `autoswitch.threshold` for Codex. Values go through the same validation as `aswap config set`.
-- **Sign-in** runs one fixed command without a shell and with no input. The only variable part is an optional email, checked against the same pattern `aswap add` uses. Signing in replaces the login in use, so an unsaved one is **saved first**, and the sign-in is refused if that save fails. The command's output is read only for the sign-in link (https only) and the device code, which the page shows if no browser window opened. While a sign-in is open, other changes answer `409`; auto-switch and its settings stay available. The process is stopped after five minutes, and the new login is saved only if it exited cleanly.
+- **Sign-in** runs one fixed command without a shell and with no input. The only variable part is an optional email, checked against the same pattern `aswap add` uses. Signing in replaces the login in use, so an unsaved one is **saved first**, and the sign-in is refused if that save fails. The command's output is read only for the sign-in link (https only) and the device code, which the page shows if no browser window opened; the link is copied to the clipboard (text only, never a command). While a sign-in is open, other changes answer `409`; auto-switch and its settings stay available. The process is stopped after five minutes, and the new login is saved only if it exited cleanly.
 - **Tokens** are taken from the request body. They are never logged, and they are removed from any message sent back.
 - **Writes** run one at a time; a second one answers `409`.
 - **No endpoint returns a token or credential.** The page receives emails, aliases, plans and percentages.
