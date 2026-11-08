@@ -8,6 +8,8 @@ loop never touches file locks, keychain subprocesses, or the network.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import time
 from dataclasses import replace
 from functools import partial
@@ -22,6 +24,7 @@ from claude_swap.models import AccountsSnapshot
 from claude_swap.snapshot_source import account_identity
 from claude_swap.settings import load_settings, load_ui_settings, set_setting
 from claude_swap.switcher import ClaudeAccountSwitcher
+from claude_swap.tui import codex_view
 from claude_swap.tui.autoview import AutoScreen
 from claude_swap.tui.dashboard import DashboardScreen, WatchScreen
 from claude_swap.tui.data import ActionResult, SnapshotSource, format_duration, run_action
@@ -32,7 +35,7 @@ from claude_swap.tui.theme import CSWAP_DARK, CSWAP_LIGHT
 class CswapApp(App):
     """claude-swap interactive dashboard."""
 
-    TITLE = "claude-swap"
+    TITLE = "agent-swap"
     CSS_PATH = "cswap.tcss"
     # No command palette: actions live in the dashboard's nested menu, in
     # their own context — not in a global searchable list.
@@ -49,6 +52,8 @@ class CswapApp(App):
     snapshot: reactive[AccountsSnapshot | None] = reactive(None)
     refresh_status: reactive[str] = reactive("")
     busy: reactive[bool] = reactive(False)
+    # Codex accounts: their own poll, slower than Claude's (see codex_view.fetch_overview).
+    codex: reactive[dict | None] = reactive(None)
 
     def __init__(
         self,
@@ -70,6 +75,7 @@ class CswapApp(App):
         self._refresh_generation = 0
         self._applied_generation = 0
         self._last_refresh_error = ""
+        self._codex_refreshing = False
         # The auto-switch lines, drawn as ticks on the status strip's bars
         # everywhere: the threshold on the 5h row, the weekly line (when
         # set) on the 7d and per-model rows. Missing/invalid settings fall
@@ -99,7 +105,9 @@ class CswapApp(App):
             self.push_screen(WatchScreen())
         self.set_interval(self.POLL_INTERVAL_S, self._tick)
         self.set_interval(1.0, self._update_refresh_status)
+        self.set_interval(codex_view.POLL_S, self.request_codex_refresh)
         self._tick()
+        self.request_codex_refresh()
 
     # -- snapshot poll loop ---------------------------------------------------
 
@@ -218,8 +226,28 @@ class CswapApp(App):
         self._store_only = value
         self.request_refresh()
 
+    # -- Codex: polled apart from the Claude snapshot ------------------------------
+
+    def request_codex_refresh(self) -> None:
+        if self._codex_refreshing:
+            return
+        self._codex_refreshing = True
+        self.run_worker(self._codex_blocking, thread=True, group="refresh-codex",
+                        exit_on_error=False, name="codex-refresh")
+
+    def _codex_blocking(self) -> None:
+        overview = codex_view.fetch_overview()
+        self.call_from_thread(self._apply_codex, overview)
+
+    def _apply_codex(self, overview: dict) -> None:
+        self._codex_refreshing = False
+        self.codex = overview
+
     def on_worker_state_changed(self, event) -> None:
         if event.state is not WorkerState.ERROR:
+            return
+        if event.worker.group == "refresh-codex":
+            self._codex_refreshing = False
             return
         if event.worker.group in {"refresh-normal", "refresh-store"}:
             if event.worker.group == "refresh-normal":
@@ -268,6 +296,7 @@ class CswapApp(App):
     ) -> None:
         self.busy = False
         self.request_refresh()
+        self.request_codex_refresh()
         if not result.ok:
             self.push_screen(OutputModal(f"{label} — failed", result.output))
             return
@@ -277,6 +306,8 @@ class CswapApp(App):
                 to = payload.get("to") or {}
                 target = to.get("email") or f"account {to.get('number')}"
                 self.notify(f"Switched to {target}", title="Switch")
+                if payload.get("note"):
+                    self.notify(str(payload["note"]), title="Codex", timeout=8)
             else:
                 reason = str(payload.get("reason") or "no switch performed")
                 self.notify(reason, title="No switch", severity="warning")
@@ -393,6 +424,78 @@ class CswapApp(App):
                 return acc.email
         return None
 
+    # -- Codex operations (same single-flight runner as Claude's) ---------------------
+
+    def do_codex_switch(self, slot: str) -> None:
+        self._start_action(f"Switch Codex to slot {slot}", partial(_codex_switch, slot, None))
+
+    def codex_rotate(self, strategy: str | None) -> None:
+        self._start_action(f"Codex: {strategy or 'rotate'}", partial(_codex_switch, None, strategy))
+
+    def codex_save(self) -> None:
+        self._start_action("Save Codex login", _codex_save)
+
+    def codex_check(self) -> None:
+        self._start_action("Check every Codex login", _codex_check, show_output=True)
+
+    def codex_toggle_disabled(self, slot: str) -> None:
+        rows = (self.codex or {}).get("accounts", [])
+        row = next((r for r in rows if str(r["slot"]) == slot), None)
+        if row is not None:
+            self._start_action("Codex: " + ("enable" if row["disabled"] else "disable") + f" slot {slot}",
+                               partial(_codex_disable, slot, not row["disabled"]))
+
+    def confirm_codex_remove(self, slot: str, email: str) -> None:
+        self.push_screen(
+            ConfirmModal(f"Remove Codex slot {slot} ({email})?\n\n"
+                         "Its stored copy is deleted; Codex itself is not touched.",
+                         title="Remove Codex account", yes_label="Remove"),
+            lambda ok: self._start_action(f"Remove Codex slot {slot}", partial(_codex_remove, slot)) if ok else None,
+        )
+
+    def codex_sign_in(self) -> None:
+        """Leave the dashboard for `codex login` in this terminal, save the result, come back.
+
+        The login in use is saved first unless OpenAI already revoked it (that copy is dead).
+        """
+        if self.busy:
+            self.notify("Another action is still running", severity="warning")
+            return
+        binary = shutil.which("codex")
+        if binary is None:
+            self.notify("Codex (`codex`) was not found on PATH", severity="error")
+            return
+        from claude_swap.codex import Codex
+
+        cx = Codex()
+        unsaved = (self.codex or {}).get("unsaved")
+        try:
+            if cx.status().get("state") == "unmanaged" and not (
+                    unsaved and unsaved.get("problem") in ("revoked", "unauthorized")):
+                cx.add()
+        except Exception as e:  # nothing is replaced if the first save fails
+            self.notify(f"Could not save the Codex login in use first: {e}", severity="error")
+            return
+        with self.suspend():
+            print("\nagent-swap: signing in to another Codex account. Finish in the browser.\n", flush=True)
+            try:
+                code = subprocess.run([binary, "login"]).returncode
+            except KeyboardInterrupt:
+                code = 130
+            if code == 0:
+                try:
+                    slot, created = cx.add()
+                    print(f"\nSaved as Codex slot {slot}.", flush=True)
+                except Exception as e:
+                    print(f"\nSigned in, but saving failed: {e}", flush=True)
+            else:
+                print("\nThe login did not complete; nothing was saved.", flush=True)
+            try:
+                input("Press Enter to return to agent-swap… ")
+            except (EOFError, KeyboardInterrupt):
+                pass
+        self.request_codex_refresh()
+
     # -- navigation -------------------------------------------------------------
 
     def action_refresh_full(self) -> None:
@@ -436,3 +539,71 @@ class CswapApp(App):
         nxt = order[(order.index(self._theme_name) + 1) % len(order)]
         self.apply_theme(nxt)
         self.notify(f"Theme: {nxt}")
+
+
+# -- Codex actions, run off the UI thread by `_start_action` -----------------------------
+
+
+def _codex_note() -> str | None:
+    """What a switch means for a Codex that is already running."""
+    from claude_swap.codex import Codex, codex_running
+    from claude_swap.codex_run import supervised_count
+
+    if not codex_running():
+        return None
+    followers = supervised_count(Codex())
+    if followers:
+        return f"{followers} Codex session(s) started with `aswap codex run` are reopening on the new login."
+    return "A Codex already running keeps its account until restarted (start it with `aswap codex run`)."
+
+
+def _codex_switch(target: str | None, strategy: str | None) -> dict:
+    from claude_swap.codex import Codex
+
+    cx = Codex()
+    slot, changed = cx.switch(target, strategy=strategy)
+    acct = cx._load()["accounts"].get(str(slot), {})
+    label = acct.get("alias") or acct.get("email") or f"slot {slot}"
+    if not changed:
+        return {"switched": False, "reason": f"Codex is already on {label}"}
+    return {"switched": True, "to": {"number": slot, "email": f"Codex {label}"}, "note": _codex_note()}
+
+
+def _codex_save() -> None:
+    from claude_swap.codex import Codex
+
+    cx = Codex()
+    cx.refuse_if_revoked()
+    slot, created = cx.add()
+    print(f"{'Added' if created else 'Refreshed'} Codex slot {slot}")
+
+
+def _codex_check() -> None:
+    from claude_swap.codex import Codex
+
+    names = {"ok": "login ok", "revoked": "login revoked: sign in again", "unauthorized": "login rejected: sign in again",
+             "failed": "could not check", "expiring": "token about to refresh (checked on its next use)", "apikey": "API key"}
+    results = Codex().check_all()
+    if not results:
+        print("No Codex accounts yet.")
+    for r in results:
+        usage, parts = r["usage"] or {}, []
+        for key in ("primary", "secondary"):
+            w = usage.get(key)
+            if w:
+                parts.append(f"{codex_view.window_label(w['window_minutes'])} {w['used_percent']:.0f}%")
+        print(f"{r['slot']:>2}  {r['label']}: {names.get(r['status'], r['status'])}" + (f"  ({' · '.join(parts)})" if parts else ""))
+
+
+def _codex_disable(slot: str, disabled: bool) -> None:
+    from claude_swap.codex import Codex
+
+    Codex().set_disabled(slot, disabled)
+    print(f"{'Disabled' if disabled else 'Enabled'} Codex slot {slot}")
+
+
+def _codex_remove(slot: str) -> None:
+    from claude_swap.codex import Codex
+
+    Codex().remove(slot, yes=True)
+    print(f"Removed Codex slot {slot}")

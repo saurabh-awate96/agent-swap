@@ -453,3 +453,32 @@ class TestCodexParityRoutes:
         assert post(rw, "/api/codex/config", {"key": "autoswitch.threshold", "value": 80})[0] == 200
         assert post(rw, "/api/codex/config", {"key": "autoswitch.keepalive", "value": True})[0] == 400
         assert parts[4].calls == [("restart",)]
+
+
+class TestRevokedLiveLogin:
+    """Saving a login OpenAI revoked only stores a dead copy; the panel says so instead."""
+
+    @pytest.fixture(autouse=True)
+    def _binaries(self, monkeypatch):
+        monkeypatch.setattr(shutil, "which", lambda name, **kw: f"/opt/bin/{name}")
+
+    def test_the_unsaved_login_reports_its_problem(self, rw, parts):
+        parts[1].state, parts[1].problem = "unmanaged", "revoked"
+        _, body, _ = call(rw, "GET", "/api/codex")
+        assert body["unsaved"]["problem"] == "revoked"
+
+    def test_a_revoked_login_is_not_saved(self, rw, parts):
+        parts[1].problem = "revoked"
+        status, body, _ = post(rw, "/api/codex/save", {})
+        assert status == 400 and "revoked" in body["error"]["message"]
+        assert ("add",) not in parts[1].calls
+
+    def test_a_healthy_login_is_saved_as_before(self, rw, parts):
+        assert post(rw, "/api/codex/save", {})[0] == 200
+        assert ("add",) in parts[1].calls
+
+    def test_signing_in_does_not_save_a_revoked_login_first_and_says_so(self, rw, parts):
+        parts[1].state, parts[1].problem = "unmanaged", "revoked"
+        status, body, _ = post(rw, "/api/codex/login", {})
+        assert status == 200 and "was revoked, so it was not saved" in body["message"]
+        assert ("add",) not in parts[1].calls and len(parts[3].started) == 1

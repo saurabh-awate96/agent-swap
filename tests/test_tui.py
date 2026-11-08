@@ -865,6 +865,7 @@ class TestDashboard:
                 "watch",
                 "auto",
                 "add-menu",
+                "codex-menu",
                 "disable-menu",
                 "remove-menu",
                 "theme-menu",

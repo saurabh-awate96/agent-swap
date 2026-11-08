@@ -732,6 +732,28 @@ class Codex:
             return None, None
         return self._match(data, auth), auth
 
+    def live_problem(self) -> str | None:
+        """Whether OpenAI currently refuses the login in auth.json ("revoked", "unauthorized"), else None.
+
+        Asked through the cached probe (at most once per five minutes), and only when
+        ``usage.codexProbe`` allows talking to the real client.
+        """
+        if not load_usage_settings(paths.get_backup_root()).codex_probe:
+            return None
+        _n, auth = self._live_slot(self._load())
+        if auth is None:
+            return None
+        _probe_snapshot(auth.identity)
+        return _PROBE.get("problem") if _PROBE.get("identity") == auth.identity else None
+
+    def refuse_if_revoked(self) -> None:
+        """Saving a login OpenAI has revoked only stores a dead copy: say what to do instead."""
+        if self.live_problem() in ("revoked", "unauthorized"):
+            raise SwitchError(
+                "OpenAI has revoked the Codex login in use, so saving it would only store a dead login. "
+                "Sign in again (add account), then it is saved."
+            )
+
     def _apply_probe(self, data: dict, persist: bool) -> tuple[int, str] | None:
         """Replace the live account's stale reading with the real client's, when it answers.
 

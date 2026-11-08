@@ -88,6 +88,16 @@ class StubCodex:
         }]
 
     state = "managed"
+    problem = None  # what OpenAI says about the live login: None, "revoked", ...
+
+    def live_problem(self):
+        return self.problem
+
+    def refuse_if_revoked(self):
+        from claude_swap.exceptions import SwitchError
+
+        if self.problem in ("revoked", "unauthorized"):
+            raise SwitchError("OpenAI has revoked the Codex login in use")
 
     def status(self):
         return {"state": self.state, "slot": 1 if self.state == "managed" else None,
@@ -444,7 +454,7 @@ class TestCodex:
     def test_a_live_codex_login_that_is_not_saved_is_reported(self, ro, codex):
         codex.state = "unmanaged"
         _, body, _ = call(ro, "GET", "/api/codex")
-        assert body["unsaved"] == {"email": "live@example.com", "plan": "plus", "authMode": "chatgpt"}
+        assert body["unsaved"] == {"email": "live@example.com", "plan": "plus", "authMode": "chatgpt", "problem": None}
 
     def test_a_managed_codex_login_reports_nothing_unsaved(self, ro, codex):
         _, body, _ = call(ro, "GET", "/api/codex")
