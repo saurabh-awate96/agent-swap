@@ -69,7 +69,7 @@ class TestStyling:
         monkeypatch.setenv("FORCE_COLOR", "1")
         result = printer.accent("hello")
         assert "hello" in result
-        assert "\033[38;5;173m" in result
+        assert "\033[38;5;141m" in result
         assert "\033[0m" in result
 
     def test_muted_with_colors_enabled(self, monkeypatch):
@@ -98,7 +98,7 @@ class TestStyling:
         monkeypatch.setenv("FORCE_COLOR", "1")
         result = printer.bold_accent("(active)")
         assert "\033[1m" in result
-        assert "\033[38;5;173m" in result
+        assert "\033[38;5;141m" in result
         assert "(active)" in result
 
 
@@ -110,9 +110,9 @@ class TestThemePalette:
         monkeypatch.setenv("FORCE_COLOR", "1")
         printer._colors_enabled = None
         printer.set_theme("light")
-        assert "38;2;149;76;42" in printer.accent("x")   # #954c2a
+        assert "38;2;91;75;214" in printer.accent("x")   # #5b4bd6
         printer.set_theme("dark")
-        assert "38;5;173" in printer.accent("x")
+        assert "38;5;141" in printer.accent("x")
 
     def test_light_theme_error_uses_light_red(self, monkeypatch, capsys):
         monkeypatch.delenv("NO_COLOR", raising=False)
@@ -127,7 +127,7 @@ class TestThemePalette:
         monkeypatch.setenv("FORCE_COLOR", "1")
         printer._colors_enabled = None
         printer.set_theme("bogus")
-        assert "38;5;173" in printer.accent("x")
+        assert "38;5;141" in printer.accent("x")
 
 
 class TestLinePrinters:
@@ -168,7 +168,7 @@ def test_force_color_overrides_and_restores():
         printer._colors_enabled = False
         with printer.force_color():
             assert printer.colors_enabled() is True
-            assert printer.accent("X") == "\x1b[38;5;173mX\x1b[0m"
+            assert printer.accent("X") == "\x1b[38;5;141mX\x1b[0m"
         assert printer._colors_enabled is False
     finally:
         printer._colors_enabled = saved

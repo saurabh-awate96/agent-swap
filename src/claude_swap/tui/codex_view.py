@@ -1,7 +1,7 @@
 """Codex in the terminal dashboard: the same cards as Claude's, in Codex's own colour.
 
-Claude's accent is terracotta; Codex's is blue, so you always know which product a row
-belongs to. The data is `Codex.rows()` (usage from Codex's own session files, the live
+Both products share agent-swap's accent; a small coloured dot next to the product name
+says which one a row belongs to. The data is `Codex.rows()` (usage from Codex's own session files, the live
 account read from the real client) and is polled on its own slower clock by the app,
 because it does not come from the Claude snapshot.
 """
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import shutil
 import time
-from dataclasses import replace
 from datetime import datetime
 
 from rich.text import Text
@@ -25,15 +24,12 @@ from claude_swap.tui import data
 from claude_swap.tui.theme import Palette
 from claude_swap.tui.widgets import usage_bar
 
-CODEX_ACCENT = "#7aa2f7"  # blue, against Claude's terracotta
-CODEX_ACCENT_LIGHT = "#2b5cb8"
 POLL_S = 30.0  # the live reading is itself cached for five minutes
 
 
 def codex_palette(theme) -> Palette:
-    """The app's palette with Codex's accent in place of Claude's."""
-    base = Palette.from_theme(theme)
-    return replace(base, accent=CODEX_ACCENT if theme.dark else CODEX_ACCENT_LIGHT)
+    """The app's palette (Codex is told apart by its dot, not by its own accent)."""
+    return Palette.from_theme(theme)
 
 
 def fetch_overview() -> dict:
@@ -214,8 +210,11 @@ class CodexPanel(Static):
         ov = self.app.codex
         if ov is None:
             return Text("codex: loading…", style=palette.muted)
+        from claude_swap.tui.theme import CODEX_DOT, CODEX_DOT_LIGHT
+
         text = Text()
-        text.append("CODEX", style=f"bold {palette.accent}")
+        text.append("● ", style=CODEX_DOT if getattr(self.app.current_theme, "dark", True) else CODEX_DOT_LIGHT)
+        text.append("Codex", style=f"bold {palette.foreground}")
         if ov["supervised"]:
             text.append(f"   {ov['supervised']} session(s) follow a switch by themselves", style=palette.muted)
         elif ov["running"]:

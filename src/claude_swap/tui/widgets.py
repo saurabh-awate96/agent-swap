@@ -427,8 +427,12 @@ class AccountsPanel(Static):
         if not blocks:
             return Text("no active managed login", style=palette.muted)
         text = Text()
-        if self._show_minis:  # the dashboard: a heading like the Codex panel's, in Claude's colour
-            text.append("CLAUDE CODE", style=f"bold {palette.accent}")
+        if self._show_minis:  # the dashboard: the product's dot and name, like the Codex panel
+            from claude_swap.tui.theme import CLAUDE_DOT, CLAUDE_DOT_LIGHT
+
+            dark = getattr(app.current_theme, "dark", True)
+            text.append("● ", style=CLAUDE_DOT if dark else CLAUDE_DOT_LIGHT)
+            text.append("Claude Code", style=f"bold {palette.foreground}")
             text.append("\n")
         previous_multiline = False
         for i, block in enumerate(blocks):
