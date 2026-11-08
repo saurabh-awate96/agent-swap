@@ -39,6 +39,10 @@ Accounts that are not live have no such reading, so they keep showing their last
 
 Two limits follow from that. Only usage **on this machine** is recorded, so use from another computer or the Codex app does not show, and the numbers can be lower than OpenAI's (the live reading above is what corrects this for the live account). And each reading is credited to the stored account whose id matches the session's `creator_account_id`: sessions of a login cswap has not stored are ignored, never guessed onto another account. A window that has reset since the last reading is shown as unknown in the web dashboard (and as `reset` on the command line), not as 0%.
 
+## Alias, disable, threshold, auto-switch, API keys
+
+Codex slots have what Claude's have: `cswap codex alias`, `disable` / `enable` (a disabled slot is skipped by `rotate`, `--strategy best`, `next-available` and auto-switch, but an explicit `switch` still works), and `threshold` (a slot's own switch-away line, 50 to 99.9). `switch --strategy next-available` rotates and skips slots whose last reading is at their limit. `cswap gui` adds a Codex auto-switch and a log-in-with-an-API-key button (`codex login --with-api-key`, the key on stdin).
+
 ## Not built
 
-Auto-switching for Codex (the Claude engine's polling and thresholds) is not wired up: `cswap codex switch` is a manual or scripted action. Windows is untested.
+Codex auto-switch exists only inside `cswap gui` (there is no `cswap auto` for Codex), and it is a small engine: no hysteresis or quarantine like Claude's. Windows is untested for the sign-in flows.

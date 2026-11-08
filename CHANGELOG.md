@@ -11,6 +11,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 
 ### Added
 
+- **Claude and Codex are equal in the control panel**: two panels with the same parts in the same order and the same actions (`/api/<provider>/<action>`, pinned by a test). Codex gained alias, disable/enable, per-account threshold, `next-available`, an auto-switch engine and API-key login; `cswap codex alias|disable|enable|threshold` exist on the command line too.
+- **Add account works on its own**: it saves the login in use first, takes an optional email for Claude, offers `codex login --device-auth`, and shows the sign-in link and device code in the panel when no browser window opens.
 - **`cswap setup`**: a guided first-run screen. Checks Claude Code and Codex, shows how many logins are saved, and walks through saving the current login, adding more accounts, saving a Codex login, picking the auto-switch point and opening a dashboard. Arrow keys, or a number.
 - **`install.sh` / `install.ps1`**: one-line install (uv, pipx, or fetch uv), PATH setup, then `cswap setup`. The Windows script is untested.
 - **`cswap onboard`**: add several of your own accounts in one sitting, one `claude auth login` each.
@@ -44,7 +46,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 
 ### Known gaps
 
-- Auto-switch for Codex is not built; `cswap codex switch` is manual.
+- Codex auto-switch runs only inside the web control panel (no `cswap auto` for it) and has a fixed five-minute cooldown, no hysteresis.
+- The **add account** sign-in flows have never been run end to end for a second account on this machine (tests use stand-in commands).
 - Plans of different sizes are compared by raw percent, not by headroom.
 - A very large macOS credential is passed to `security` as an argument, visible to the same user's processes for a moment.
 - The keepalive has not been run against a real account, and whether providers accept scheduled requests is not something cswap can know.

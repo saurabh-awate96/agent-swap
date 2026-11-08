@@ -1567,11 +1567,23 @@ def _codex_command(argv: list[str]) -> None:
     p_list.add_argument("--json", action="store_true")
     p_switch = verb("switch", "rotate to the next account, or jump to one")
     p_switch.add_argument("target", nargs="?", metavar="NUM|EMAIL|ALIAS")
-    p_switch.add_argument("--strategy", choices=["best"], help="pick the account with the most quota left")
+    p_switch.add_argument("--strategy", choices=["best", "next-available"],
+                          help="best: most quota left; next-available: rotate, skipping accounts at their limit")
     p_switch.add_argument("--force", action="store_true", help="switch even while Codex may be refreshing")
     p_remove = verb("remove", "forget a stored account")
     p_remove.add_argument("target", metavar="NUM|EMAIL|ALIAS")
     p_remove.add_argument("-y", "--yes", action="store_true", help="also remove the active slot")
+    p_alias = verb("alias", "give a stored account a short name (blank clears it)")
+    p_alias.add_argument("target", metavar="NUM|EMAIL|ALIAS")
+    p_alias.add_argument("name", nargs="?", default="", help="the new name; omit to clear")
+    p_disable = verb("disable", "hold an account out of rotate / best / auto-switch")
+    p_disable.add_argument("target", metavar="NUM|EMAIL|ALIAS")
+    p_enable = verb("enable", "return a disabled account to rotation")
+    p_enable.add_argument("target", metavar="NUM|EMAIL|ALIAS")
+    p_threshold = verb("threshold", "an account's own switch-away line (50-99.9)")
+    p_threshold.add_argument("target", metavar="NUM|EMAIL|ALIAS")
+    p_threshold.add_argument("pct", nargs="?", type=float, help="percent used; omit with --unset")
+    p_threshold.add_argument("--unset", action="store_true", help="use the global line again")
     p_status = verb("status", "show which stored account is live")
     p_status.add_argument("--json", action="store_true")
     args = parser.parse_args(argv)
@@ -1599,6 +1611,14 @@ def _codex_command(argv: list[str]) -> None:
             print(dimmed("Running Codex sessions keep their account until restarted."))
         elif args.verb == "remove":
             print(f"{accent('Removed')} Codex slot {cx.remove(args.target, yes=args.yes)}")
+        elif args.verb == "alias":
+            print(f"{accent('Alias set' if args.name else 'Alias cleared')} on Codex slot {cx.set_alias(args.target, args.name)}")
+        elif args.verb in ("disable", "enable"):
+            print(f"{accent(args.verb.capitalize() + 'd')} Codex slot {cx.set_disabled(args.target, args.verb == 'disable')}")
+        elif args.verb == "threshold":
+            if args.unset == (args.pct is not None):
+                parser.error("give a percent, or --unset")
+            print(f"{accent('Threshold saved' if not args.unset else 'Threshold cleared')} on Codex slot {cx.set_threshold(args.target, None if args.unset else args.pct)}")
         else:
             st = cx.status()
             if args.json:

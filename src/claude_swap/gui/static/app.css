@@ -18,15 +18,27 @@ body {
   font: 15px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, "DejaVu Sans Mono", monospace;
 }
 header { display: flex; flex-wrap: wrap; gap: 4px 24px; padding: 0 12px; }
-#notice, #job, #conn { padding: 0 12px; margin: 4px 0 0; min-height: 1.5em; }
-#conn:empty, #job:empty { min-height: 0; margin: 0; }
-section { margin-top: 12px; }
+.brand { color: var(--accent); font-weight: bold; }
+#notice, #conn { padding: 0 12px; margin: 4px 0 0; min-height: 1.5em; }
+#conn:empty { min-height: 0; margin: 0; }
+
+/* Two equal panels, the same parts in the same order: Claude on the left, Codex on the right. */
+.panels { display: grid; grid-template-columns: repeat(auto-fit, minmax(520px, 1fr)); gap: 0 28px; padding: 12px 12px 0; align-items: start; }
+@media (max-width: 600px) { .panels { grid-template-columns: 1fr; } }
+.panel { min-width: 0; padding-bottom: 20px; }
+.panel h2 { margin: 0; padding: 4px 0; font-size: 1em; color: var(--accent); text-transform: uppercase; letter-spacing: 0.08em; border-bottom: 1px solid var(--track); }
+.panel .state { padding: 6px 0 0; }
+.panel .state b { color: var(--fg); font-weight: normal; }
+.sub { margin: 14px 0 0; color: var(--muted); font-size: 0.9em; text-transform: lowercase; }
+.progress { margin: 8px 0 0; padding: 6px 10px; border: 1px solid var(--accent); }
+.progress a { color: var(--accent); }
+.progress .code { font-weight: bold; letter-spacing: 0.1em; }
 .section-head { display: flex; gap: 16px; align-items: baseline; padding: 0 12px; }
-.tools { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 12px 0; }
+.tools { display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 0 0; }
 .muted { color: var(--muted); }
 .dim { opacity: 0.6; }
 code { color: var(--fg); }
-main { padding: 4px 12px; }
+main { padding: 4px 0; }
 .acct { margin: 12px 0 18px; padding-left: 10px; border-left: 3px solid transparent; }
 .acct.active { border-left-color: var(--accent); }
 .head { overflow-wrap: anywhere; }
@@ -42,9 +54,9 @@ p.on { margin-left: 0; }
 .ok { color: var(--ok); } .warn { color: var(--warn); } .crit { color: var(--crit); }
 .track { color: var(--track); } .tick { color: var(--warn); }
 .note { padding: 2px 12px 2px 40px; }
-section > .note { padding-left: 12px; }
+.panel > .note { padding-left: 0; }
 .acts { padding-left: 28px; margin-top: 4px; display: flex; flex-wrap: wrap; gap: 8px; }
-.log { padding: 2px 12px 2px 40px; }
+.log { padding: 2px 0 2px 28px; }
 .log div { overflow-wrap: anywhere; }
 .log .t { color: var(--muted); margin-right: 12px; }
 
