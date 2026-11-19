@@ -172,6 +172,70 @@ def test_switch_to_the_active_slot_changes_nothing(env):
     assert env.live_bytes() == before
 
 
+REAL_RESTART = codex.restart_app_server  # conftest stubs it; the real one runs a fake binary here
+
+
+def test_a_switch_restarts_the_codex_daemon_before_the_marker(env, monkeypatch):
+    sw = two_accounts(env)
+    seen = []
+    monkeypatch.setattr(codex, "restart_app_server",
+                        lambda: seen.append((sw.root / "switched.json").exists()) or True)
+    assert sw.switch("1") == (1, True)
+    assert seen == [False] and sw.daemon_restarted is True
+    assert (sw.root / "switched.json").exists()
+
+
+def test_no_daemon_restart_when_already_on_the_slot(env, monkeypatch):
+    sw = two_accounts(env)
+    seen = []
+    monkeypatch.setattr(codex, "restart_app_server", lambda: seen.append(1) or True)
+    assert sw.switch("2") == (2, False)
+    assert seen == [] and sw.daemon_restarted is None
+
+
+def _fake_codex(tmp_path, status: str, restart_ok: bool = True) -> tuple[Path, Path]:
+    """A ``codex`` that answers ``app-server daemon version|restart`` and logs its calls."""
+    log = tmp_path / "calls.log"
+    exe = tmp_path / "bin" / "codex"
+    exe.parent.mkdir()
+    exe.write_text(textwrap.dedent(f"""\
+        #!/bin/sh
+        echo "$*" >> "{log}"
+        case "$3" in
+          version) echo '{{"event":"x"}}'; echo '{{"status":"{status}"}}' ;;
+          restart) {'echo \'{"status":"restarted"}\'' if restart_ok else 'exit 1'} ;;
+        esac
+        """))
+    exe.chmod(0o755)
+    return exe, log
+
+
+@pytest.mark.skipif(sys.platform == "win32", reason="a POSIX shell script stands in for codex")
+@pytest.mark.parametrize("status,restart_ok,expect,calls", [
+    ("running", True, True, ["app-server daemon version", "app-server daemon restart"]),
+    ("running", False, False, ["app-server daemon version", "app-server daemon restart"]),
+    ("stopped", True, None, ["app-server daemon version"]),
+])
+def test_restart_app_server_only_restarts_a_running_daemon(tmp_path, monkeypatch, status, restart_ok, expect, calls):
+    exe, log = _fake_codex(tmp_path, status, restart_ok)
+    monkeypatch.setattr(codex.shutil, "which", lambda name: str(exe) if name == "codex" else None)
+    assert REAL_RESTART() is expect
+    assert log.read_text().splitlines() == calls
+
+
+def test_restart_app_server_without_codex_does_nothing(monkeypatch):
+    monkeypatch.setattr(codex.shutil, "which", lambda name: None)
+    assert REAL_RESTART() is None
+
+
+def test_cli_says_when_it_restarted_the_codex_daemon(env, monkeypatch, capsys):
+    two_accounts(env)
+    monkeypatch.setattr(codex, "restart_app_server", lambda: True)
+    monkeypatch.setattr(sys, "argv", ["cswap", "codex", "switch", "1"])
+    cli.main()
+    assert "Restarted Codex's background app-server" in capsys.readouterr().out
+
+
 # --- 2. capture-back ---------------------------------------------------------
 
 
@@ -1228,3 +1292,53 @@ def test_forget_all_deletes_every_stored_login(env):
 
 def test_forget_all_with_no_roster_is_a_no_op(env):
     assert env.sw().forget_all() == []
+
+
+# --- a sign-in done elsewhere (the dashboard's throwaway CODEX_HOME) ----------
+
+
+def test_a_signed_in_login_is_added_without_touching_the_login_in_use(env):
+    sw = env.sw()
+    live = env.login(make_auth(**A))
+    sw.add()
+    blob = make_auth(**B).encode()
+    assert sw.add(blob=blob) == (2, True)
+    assert env.live_bytes() == live
+    assert sw._read_blob(2) == blob
+    assert sw._load()["activeAccountNumber"] == 1
+
+
+def test_signing_in_again_replaces_a_revoked_copy_and_clears_its_health(env):
+    sw = two_accounts(env)  # live is B
+    data = sw._load()
+    data["accounts"]["1"]["health"] = {"status": "revoked", "at": "2026-11-01T00:00:00+00:00"}
+    sw._save(data)
+    fresh = make_auth(**{**A, "refresh": "rt-A-new"}).encode()
+    assert sw.add(blob=fresh) == (1, False)
+    assert sw._read_blob(1) == fresh
+    assert "health" not in sw._load()["accounts"]["1"]
+    assert sw._load()["activeAccountNumber"] == 2
+    assert b"rt-B-1" in env.live_bytes()
+
+
+def test_signing_in_again_to_the_account_in_use_hands_codex_the_new_login(env):
+    sw = two_accounts(env)  # live is B
+    fresh = make_auth(**{**B, "refresh": "rt-B-new"}).encode()
+    assert sw.add(blob=fresh) == (2, False)
+    assert env.live_bytes() == fresh
+    assert sw._read_blob(2) == fresh
+
+
+def test_signing_in_again_as_another_account_saves_nothing(env):
+    sw = two_accounts(env)
+    before = (sw._read_blob(1), sw._read_blob(2), env.live_bytes(), sw._load())
+    with pytest.raises(SwitchError, match="not the account in Codex slot 1"):
+        sw.add(blob=make_auth(**C).encode(), expect=1)
+    assert (sw._read_blob(1), sw._read_blob(2), env.live_bytes(), sw._load()) == before
+
+
+def test_signing_in_again_to_the_expected_slot_is_saved(env):
+    sw = two_accounts(env)
+    fresh = make_auth(**{**A, "refresh": "rt-A-new"}).encode()
+    assert sw.add(blob=fresh, expect=1) == (1, False)
+    assert sw._read_blob(1) == fresh and sw._load()["activeAccountNumber"] == 2

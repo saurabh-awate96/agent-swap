@@ -248,14 +248,17 @@ class LoginJob:
     def snapshot(self) -> dict | None:
         return dict(self._state) if self._state else None
 
-    def start(self, kind: str, argv: list[str], save: Callable[[], str], timeout: float = LOGIN_TIMEOUT_S) -> bool:
-        """False when a login is already running."""
+    def start(self, kind: str, argv: list[str], save: Callable[[], str], timeout: float = LOGIN_TIMEOUT_S,
+              env: dict[str, str] | None = None, cleanup: Callable[[], None] | None = None) -> bool:
+        """False when a login is already running. ``env`` is added to the login's environment;
+        ``cleanup`` runs once the login and its save are over, however they ended."""
         with self._lock:
             if self.running():
                 return False
             self._state = {"kind": kind, "state": "running",
                            "message": "Link ready. Paste it into the browser you want to sign in with."}
-        threading.Thread(target=self._run, args=(argv, save, timeout), daemon=True, name="agent-swap-login").start()
+        threading.Thread(target=self._run, args=(argv, save, timeout, env or {}, cleanup), daemon=True,
+                         name="agent-swap-login").start()
         return True
 
     def _finish(self, state: str, message: str) -> None:
@@ -280,11 +283,16 @@ class LoginJob:
         if code and "code" not in state:
             state["code"] = code.group(0)
 
-    def _run(self, argv: list[str], save: Callable[[], str], timeout: float) -> None:
-        if os.name != "posix":
-            return self._run_with_env(argv, save, timeout, None)
-        with tempfile.TemporaryDirectory(prefix="agent-swap-login-") as shim:
-            self._run_with_env(argv, save, timeout, no_browser_env(shim))
+    def _run(self, argv: list[str], save: Callable[[], str], timeout: float,
+             extra: dict[str, str] | None = None, cleanup: Callable[[], None] | None = None) -> None:
+        try:
+            if os.name != "posix":
+                return self._run_with_env(argv, save, timeout, {**os.environ, **extra} if extra else None)
+            with tempfile.TemporaryDirectory(prefix="agent-swap-login-") as shim:
+                self._run_with_env(argv, save, timeout, {**no_browser_env(shim), **(extra or {})})
+        finally:
+            if cleanup is not None:
+                cleanup()
 
     def _run_with_env(self, argv: list[str], save: Callable[[], str], timeout: float, env: dict | None) -> None:
         try:

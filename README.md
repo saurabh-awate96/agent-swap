@@ -124,6 +124,7 @@ aswap codex run                  # Codex that follows a switch (POSIX only)
 
 - **Run `aswap codex add` for the current login before `codex login` for another.** `aswap codex switch` refuses to replace a login aswap has not stored.
 - **Never run `codex logout` on a stored account.** It revokes the login on OpenAI's side, so the stored copy dies too.
+- **A switch restarts Codex's background app-server** (`codex app-server daemon`), when it is running, so new Codex sessions use the new account.
 - **A plain running Codex keeps its account until it restarts.** Start it with `aswap codex run` (or `alias codex='aswap codex run'`) and a switch reopens it on the new login in the same terminal, resuming the same conversation.
 
 Full command list, usage numbers and the live-account reading: [docs/codex.md](docs/codex.md).
@@ -152,7 +153,7 @@ aswap gui --no-open      # print the link instead (shared machines)
 The page has two parts. Light and dark follow your system, and a small coloured dot tells Claude Code and Codex apart.
 
 - **Active now**: one card per product with the account in use and its limits, worded like Claude's own usage page ("Current session — Resets 7:40 PM — 50% used"), with a tick on each bar at the switch-away line. The card holds the Auto-switch toggle, Dry run, its settings and Best account. A login you have not saved yet is flagged there, with a Save button.
-- **Accounts**: one table for both products, with tabs for All, Claude Code and Codex. Click a row to open its details: switch, refresh, alias, switch-away line, disable or remove.
+- **Accounts**: one table for both products, with tabs for All, Claude Code and Codex. Each meter shows the percentage used and when that window resets ("resets in 2h 5m"); a minute after a reset the page checks that account again on its own. Click a row to open its details: switch, refresh, alias, switch-away line, disable, sign in again (renews its login without switching) or remove.
 
 **+ Add account** opens one dialog: sign in with the browser, save the login in use, or use a token or API key. Every action shows a toast and goes into an Activity list at the bottom.
 

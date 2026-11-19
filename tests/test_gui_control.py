@@ -10,7 +10,9 @@ from __future__ import annotations
 
 import json
 import shutil
+import tempfile
 import threading
+from pathlib import Path
 
 import pytest
 
@@ -74,10 +76,11 @@ class StubJob:
     def running(self):
         return self.busy
 
-    def start(self, kind, argv, save):
+    def start(self, kind, argv, save, env=None, cleanup=None):
         if self.busy:
             return False
         self.started.append((kind, argv, save))
+        self.env, self.cleanup = env, cleanup
         return True
 
     def snapshot(self):
@@ -271,18 +274,115 @@ class TestLogin:
         assert rw.write_lock.acquire(blocking=False)  # released again afterwards
         rw.write_lock.release()
 
-    def test_a_codex_login_and_its_save(self, rw, parts):
+    def test_a_codex_login_runs_in_a_throwaway_home_and_its_save(self, rw, parts):
         assert post(rw, "/api/login", {"kind": "codex"})[0] == 200
         kind, argv, save = parts[3].started[0]
         assert (kind, argv) == ("codex", ["/opt/bin/codex", "login", "--device-auth"])  # never opens a browser
-        assert save() == "Added Codex slot 2"
-        assert ("add",) in parts[1].calls
+        home = Path(parts[3].env["CODEX_HOME"])
+        assert home.is_dir() and (home.stat().st_mode & 0o777) == 0o700
+        (home / "auth.json").write_bytes(b"signed-in")
+        assert save().startswith("Added Codex slot 2. The account in use did not change")
+        assert ("add_blob", b"signed-in") in parts[1].calls and ("add",) not in parts[1].calls
+        parts[3].cleanup()
+        assert not home.exists()
 
-    def test_an_unsaved_codex_login_is_saved_first_too(self, rw, parts):
+    def test_a_codex_login_that_wrote_nothing_saves_nothing(self, rw, parts):
+        post(rw, "/api/codex/login", {})
+        with pytest.raises(ClaudeSwitchError, match="wrote no login"):
+            parts[3].started[0][2]()
+        parts[3].cleanup()
+
+    def test_an_unsaved_codex_login_in_use_is_left_alone(self, rw, parts):
         parts[1].state = "unmanaged"
         status, body, _ = post(rw, "/api/codex/login", {})
-        assert status == 200 and "Saved the Codex login" in body["message"]
-        assert ("add",) in parts[1].calls and len(parts[3].started) == 1
+        assert status == 200 and "Saved" not in body["message"]
+        assert ("add",) not in parts[1].calls and len(parts[3].started) == 1
+        parts[3].cleanup()
+
+    def test_a_busy_codex_login_removes_its_throwaway_home(self, rw, parts, monkeypatch):
+        made = []
+        real = tempfile.mkdtemp
+        monkeypatch.setattr(tempfile, "mkdtemp", lambda **kw: made.append(real(**kw)) or made[-1])
+        parts[3].start = lambda *a, **kw: False  # another login won the race after the busy check
+        assert post(rw, "/api/codex/login", {})[0] == 409
+        assert made and not Path(made[0]).exists()
+
+    def test_a_claude_login_switches_back_to_the_account_in_use(self, rw, parts):
+        stub = parts[0]
+        stub.live = ("me@example.com", "")
+        stub.sequence = {"accounts": {"1": {"email": "me@example.com", "organizationUuid": ""}}}
+        stub.saved = True
+        assert post(rw, "/api/claude/login", {})[0] == 200
+        stub.live = ("new@example.com", "")  # what `claude auth login` leaves in use
+        stub.sequence["accounts"]["2"] = {"email": "new@example.com", "organizationUuid": ""}
+        message = parts[3].started[0][2]()
+        assert ("switch_to", "1") in stub.calls
+        assert message.endswith("Still using account 1.")
+
+    def test_a_failed_switch_back_is_reported_not_hidden(self, rw, parts):
+        stub = parts[0]
+        stub.live = ("me@example.com", "")
+        stub.sequence = {"accounts": {"1": {"email": "me@example.com", "organizationUuid": ""}}}
+        stub.saved = True
+        post(rw, "/api/claude/login", {})
+        stub.live = ("new@example.com", "")
+        stub.fail_with = ClaudeSwitchError("keychain locked")
+        message = parts[3].started[0][2]()
+        assert "Could not switch back to account 1" in message and "keychain locked" in message
+
+    def _two_claude(self, stub):
+        stub.live = ("me@example.com", "")
+        stub.sequence = {"accounts": {"1": {"email": "me@example.com", "organizationUuid": ""},
+                                      "2": {"email": "other@example.com", "organizationUuid": ""}}}
+        stub.saved = True
+
+    def test_signing_in_again_to_one_account_uses_its_email_and_switches_back(self, rw, parts):
+        stub = parts[0]
+        self._two_claude(stub)
+        assert post(rw, "/api/claude/login", {"number": "2"})[0] == 200
+        assert parts[3].started[0][1] == ["/opt/bin/claude", "auth", "login", "--email", "other@example.com"]
+        stub.live = ("other@example.com", "")  # the sign-in landed on account 2
+        message = parts[3].started[0][2]()
+        assert ("add",) in stub.calls and ("switch_to", "1") in stub.calls
+        assert message.endswith("Still using account 1.")
+
+    def test_signing_in_again_as_someone_else_saves_nothing_and_switches_back(self, rw, parts):
+        stub = parts[0]
+        self._two_claude(stub)
+        post(rw, "/api/claude/login", {"number": "2"})
+        stub.live = ("stranger@example.com", "")
+        with pytest.raises(ClaudeSwitchError, match="stranger@example.com, not account 2"):
+            parts[3].started[0][2]()
+        assert ("add",) not in stub.calls and ("switch_to", "1") in stub.calls
+
+    def test_signing_in_again_to_the_account_in_use_does_not_switch(self, rw, parts):
+        stub = parts[0]
+        self._two_claude(stub)
+        post(rw, "/api/claude/login", {"number": "1"})
+        parts[3].started[0][2]()
+        assert ("add",) in stub.calls and not [c for c in stub.calls if c[0] == "switch_to"]
+
+    @pytest.mark.parametrize("body, status", [
+        ({"number": "9"}, 404), ({"number": 2}, 400), ({"number": "2; rm"}, 400),
+        ({"number": "2", "email": "x@example.com"}, 400),
+    ])
+    def test_a_bad_re_login_request_starts_nothing(self, rw, parts, body, status):
+        self._two_claude(parts[0])
+        assert post(rw, "/api/claude/login", body)[0] == status
+        assert parts[3].started == []
+
+    def test_signing_in_again_to_a_codex_slot_must_be_that_account(self, rw, parts):
+        assert post(rw, "/api/codex/login", {"number": "3"})[0] == 200
+        home = Path(parts[3].env["CODEX_HOME"])
+        (home / "auth.json").write_bytes(b"signed-in")
+        assert parts[3].started[0][2]().startswith("Signed in again to Codex slot 3. The account in use did not change")
+        assert ("add_blob", b"signed-in", 3) in parts[1].calls
+        parts[3].cleanup()
+
+    def test_with_no_account_in_use_the_new_one_stays(self, rw, parts):
+        post(rw, "/api/claude/login", {})
+        parts[3].started[0][2]()
+        assert not [c for c in parts[0].calls if c[0] == "switch_to"]
 
     def test_a_code_login_uses_the_device_flow(self, rw, parts):
         assert post(rw, "/api/codex/login", {"device": True})[0] == 200
@@ -477,8 +577,9 @@ class TestRevokedLiveLogin:
         assert post(rw, "/api/codex/save", {})[0] == 200
         assert ("add",) in parts[1].calls
 
-    def test_signing_in_does_not_save_a_revoked_login_first_and_says_so(self, rw, parts):
+    def test_signing_in_does_not_save_a_revoked_login_in_use(self, rw, parts):
         parts[1].state, parts[1].problem = "unmanaged", "revoked"
         status, body, _ = post(rw, "/api/codex/login", {})
-        assert status == 200 and "was revoked, so it was not saved" in body["message"]
+        assert status == 200
         assert ("add",) not in parts[1].calls and len(parts[3].started) == 1
+        parts[3].cleanup()

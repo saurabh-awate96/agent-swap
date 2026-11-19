@@ -1610,6 +1610,8 @@ def _codex_command(argv: list[str]) -> None:
         elif args.verb == "switch":
             slot, changed = cx.switch(args.target, strategy=args.strategy, force=args.force)
             print(f"{accent('Switched' if changed else 'Already on')} Codex slot {slot}")
+            if changed and cx.daemon_restarted is not None:
+                print(dimmed(codex.DAEMON_NOTE[cx.daemon_restarted]))
             print(dimmed("Running Codex sessions keep their account until restarted."))
         elif args.verb == "remove":
             print(f"{accent('Removed')} Codex slot {cx.remove(args.target, yes=args.yes)}")

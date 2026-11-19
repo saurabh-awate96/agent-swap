@@ -13,12 +13,15 @@ from __future__ import annotations
 import hmac
 import json
 import logging
+import os
 import re
 import secrets
 import shutil
+import tempfile
 import threading
 import time
 from functools import partial
+from pathlib import Path
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from urllib.parse import urlsplit
@@ -141,6 +144,17 @@ class GuiServer(ThreadingHTTPServer):
         except (ClaudeSwitchError, OSError):
             return None
         return {"email": live[0], "isOrganization": bool(live[1])}
+
+    def claude_slot_in_use(self) -> str | None:
+        """The saved slot of the login Claude Code is using now, or None (none, or not saved)."""
+        try:
+            live = self.switcher._get_current_identity_triple()
+            if live is None:
+                return None
+            data = self.switcher._get_sequence_data() or {}
+            return self.switcher._find_account_slot(data, live[0], live[1])
+        except (ClaudeSwitchError, OSError):
+            return None
 
     def codex_live_unsaved(self) -> bool:
         try:
@@ -402,14 +416,22 @@ class _Handler(BaseHTTPRequestHandler):
             self._fail(400, "BadRequest", "unexpected field")
         self._finish(self.server.switcher.add_account, {})
 
+    def _codex_switched(self, slot: int, changed: bool) -> None:
+        from claude_swap.codex import DAEMON_NOTE
+
+        self.server._codex_rows = None
+        restarted = getattr(self.server.codex(), "daemon_restarted", None) if changed else None
+        note = "" if restarted is None else DAEMON_NOTE[restarted] + " "
+        self._json(200, {
+            "schemaVersion": SCHEMA_VERSION, "switched": changed, "to": {"number": slot},
+            "daemonRestarted": restarted,
+            "message": note + "Running Codex sessions keep their account until restarted.",
+        })
+
     def _codex_switch(self, body: dict) -> None:
         number = self._number(body, {"number"})
         slot, changed = self.server.codex().switch(number)
-        self.server._codex_rows = None
-        self._json(200, {
-            "schemaVersion": SCHEMA_VERSION, "switched": changed, "to": {"number": slot},
-            "message": "Running Codex sessions keep their account until restarted.",
-        })
+        self._codex_switched(slot, changed)
 
     def _codex_add_current(self, body: dict) -> None:
         if body:
@@ -487,10 +509,11 @@ class _Handler(BaseHTTPRequestHandler):
         )
 
     def _login(self, body: dict) -> None:
-        """Sign in to another account in the browser, then save it.
+        """Sign in to another account in the browser, then save it without making it active.
 
-        The login in use is saved first when aswap does not have it yet (signing in
-        replaces it), so there is nothing for the user to do beforehand.
+        Claude: signing in replaces the login in use, so that one is saved first when aswap
+        does not have it yet, and is switched back to once the new one is saved. Codex: the
+        sign-in runs in a throwaway CODEX_HOME, so the login in use is never touched.
         """
         server = self.server
         explicit = getattr(self, "_explicit", None)
@@ -499,13 +522,25 @@ class _Handler(BaseHTTPRequestHandler):
             self._fail(400, "BadRequest", "kind does not match the endpoint")
         body = {k: v for k, v in body.items() if k != "kind"}
         saved_first = ""
+        # "number": sign in again to that stored account only (its login is renewed, nothing switches).
+        target = body.get("number")
+        if target is not None and (not isinstance(target, str) or not _SLOT.fullmatch(target)):
+            self._fail(400, "BadRequest", "number must be a slot number like \"2\"")
         if kind == "claude":
-            if set(body) - {"email"}:
+            if set(body) - {"email", "number"}:
                 self._fail(400, "BadRequest", "unexpected field")
             email = body.get("email") or None
             if email is not None and (not isinstance(email, str) or len(email) > 254
                                       or not server.switcher._validate_email(email)):
                 self._fail(400, "BadRequest", "enter a valid email address, or leave it blank")
+            org = ""
+            if target is not None:
+                if email is not None:
+                    self._fail(400, "BadRequest", "give an email or an account number, not both")
+                acct = (server.switcher._get_sequence_data() or {}).get("accounts", {}).get(target)
+                if acct is None:
+                    self._fail(404, "NotFound", f"no Claude account {target}")
+                email, org = acct.get("email") or None, acct.get("organizationUuid", "")
             binary = shutil.which("claude")
             if binary is None:
                 self._fail(400, "NotInstalled", "Claude Code (`claude`) was not found on PATH")
@@ -516,40 +551,59 @@ class _Handler(BaseHTTPRequestHandler):
                                + result.first_line.removeprefix("Error: "))
                 saved_first = "Saved the login you were using. "
             argv = [binary, "auth", "login"] + (["--email", email] if email else [])
+            previous = server.claude_slot_in_use()
+            env, cleanup = None, None
 
             def save() -> str:
                 with server.write_lock:
+                    if target is not None:
+                        live = server.switcher._get_current_identity_triple()
+                        if live is None or live[0].lower() != (email or "").lower() or live[1] != org:
+                            if previous is not None:
+                                run_action(partial(server.switcher.switch_to, previous))
+                            raise ClaudeSwitchError(f"You signed in as {live[0] if live else 'nobody'}, not account "
+                                                    f"{target}, so nothing was saved")
                     result = run_action(server.switcher.add_account)
-                if not result.ok:
-                    raise ClaudeSwitchError(result.first_line.removeprefix("Error: "))
-                return result.first_line or "Account saved."
+                    if not result.ok:
+                        raise ClaudeSwitchError(result.first_line.removeprefix("Error: "))
+                    message = result.first_line or "Account saved."
+                    if previous is None or server.claude_slot_in_use() == previous:
+                        return message
+                    back = run_action(partial(server.switcher.switch_to, previous))
+                if not back.ok:
+                    return (f"{message} Could not switch back to account {previous}, so the new one is in use: "
+                            + back.first_line.removeprefix("Error: "))
+                return f"{message} Still using account {previous}."
         elif kind == "codex":
-            if set(body) - {"device"} or not isinstance(body.get("device", False), bool):
+            if set(body) - {"device", "number"} or not isinstance(body.get("device", False), bool):
                 self._fail(400, "BadRequest", "unexpected field")
             binary = shutil.which("codex")
             if binary is None:
                 self._fail(400, "NotInstalled", "Codex (`codex`) was not found on PATH")
-            if server.codex_live_unsaved():
-                if server.codex().live_problem() in ("revoked", "unauthorized"):
-                    saved_first = "The login in use was revoked, so it was not saved. "
-                else:
-                    try:
-                        server.codex().add()
-                    except ClaudeSwitchError as e:
-                        self._fail(409, "Unsaved", f"Could not save the Codex login in use first: {e}")
-                    server._codex_rows = None
-                    saved_first = "Saved the Codex login you were using. "
             # Always by device code: it never opens a browser (the plain login does, through the OS, and that cannot be stopped).
             argv = [binary, "login", "--device-auth"]
+            # In a throwaway CODEX_HOME: the login in use (and every Codex running on it) is left alone.
+            home = tempfile.mkdtemp(prefix="agent-swap-codex-login-")
+            os.chmod(home, 0o700)
+            env = {"CODEX_HOME": home}
+
+            def cleanup() -> None:
+                shutil.rmtree(home, ignore_errors=True)
 
             def save() -> str:
+                try:
+                    blob = (Path(home) / "auth.json").read_bytes()
+                except OSError:
+                    raise ClaudeSwitchError("Codex finished but wrote no login") from None
                 with server.write_lock:
-                    slot, created = server.codex().add()
+                    slot, created = server.codex().add(blob=blob, expect=None if target is None else int(target))
                     server._codex_rows = None
-                return f"{'Added' if created else 'Refreshed'} Codex slot {slot}"
+                return f"{'Added' if created else 'Signed in again to'} Codex slot {slot}. The account in use did not change."
         else:
             self._fail(400, "BadRequest", "kind must be claude or codex")
-        if not server.job.start(kind, argv, save):
+        if not server.job.start(kind, argv, save, env=env, cleanup=cleanup):
+            if cleanup is not None:
+                cleanup()
             self._fail(409, "Busy", "a browser login is already in progress")
         self._json(200, {"schemaVersion": SCHEMA_VERSION, "ok": True,
                          "message": saved_first + "Link ready. Paste it into the browser you want to sign in with."})
@@ -659,11 +713,7 @@ class _Handler(BaseHTTPRequestHandler):
 
     def _codex_rotate(self, body: dict) -> None:
         slot, changed = self.server.codex().switch(None, strategy=self._strategy(body))
-        self.server._codex_rows = None
-        self._json(200, {
-            "schemaVersion": SCHEMA_VERSION, "switched": changed, "to": {"number": slot},
-            "message": "Running Codex sessions keep their account until restarted.",
-        })
+        self._codex_switched(slot, changed)
 
     def _codex_remove(self, body: dict) -> None:
         number = self._number(body, {"number"})

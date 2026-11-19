@@ -67,6 +67,18 @@ class StubSwitcher:
         self.calls.append(("add",))
         print("Added Account-2.")
 
+    sequence: dict = {"accounts": {}}  # slot -> {"email", "organizationUuid"}, for claude_slot_in_use
+
+    def _get_sequence_data(self):
+        return self.sequence
+
+    @staticmethod
+    def _find_account_slot(data, email, organization_uuid):
+        for num, acct in data.get("accounts", {}).items():
+            if acct.get("email") == email and acct.get("organizationUuid", "") == organization_uuid:
+                return num
+        return None
+
 
 class StubCodex:
     """The Codex calls the server makes, recorded; never reads a real ~/.codex."""
@@ -134,9 +146,12 @@ class StubCodex:
         self.calls.append(("remove", target, yes))
         return int(target)
 
-    def add(self, slot=None, alias=None, yes=False):
-        self.calls.append(("add",))
-        return 2, True
+    def add(self, slot=None, alias=None, yes=False, blob=None, expect=None):
+        if blob is None:
+            self.calls.append(("add",))
+        else:
+            self.calls.append(("add_blob", blob) if expect is None else ("add_blob", blob, expect))
+        return (expect or 2), expect is None
 
 
 @pytest.fixture
@@ -523,6 +538,7 @@ class TestCodex:
         status, body, _ = post(rw, "/api/codex/switch", {"number": "2"})
         assert status == 200 and body["switched"] is True
         assert "restarted" in body["message"]
+        assert body["daemonRestarted"] is None and "app-server" not in body["message"]
         assert post(rw, "/api/codex/add-current", {})[0] == 200
         assert [c for c in codex.calls if c[0] != "rows"] == [("switch", "2"), ("add",)]
 
@@ -530,6 +546,14 @@ class TestCodex:
     def test_only_plain_slot_numbers_are_accepted(self, rw, codex, body):
         assert post(rw, "/api/codex/switch", body)[0] == 400
         assert codex.calls == []
+
+    @pytest.mark.parametrize("restarted", [True, False])
+    def test_a_switch_says_whether_the_codex_daemon_restarted(self, rw, codex, restarted):
+        codex.daemon_restarted = restarted
+        status, body, _ = post(rw, "/api/codex/switch", {"number": "2"})
+        assert status == 200 and body["daemonRestarted"] is restarted
+        assert ("Restarted Codex's background app-server" in body["message"]) is restarted
+        assert ("codex app-server daemon restart" in body["message"]) is not restarted
 
     def test_a_codex_error_is_a_400_with_its_type(self, rw, codex):
         codex.switch = lambda *a, **k: (_ for _ in ()).throw(SwitchError("not managed"))

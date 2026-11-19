@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 
 ### Added
 
+- **Sign in again, without switching.** Every account's details have a **Sign in again** button that renews that account's login and leaves the account in use alone. A sign-in as any other account saves nothing and says who signed in.
+- **Reset times in the accounts table.** Each Session and Weekly meter shows "50% used" and, under it, when the window resets ("resets in 2h 5m"; hover for the clock time). Limit rows elsewhere add the time left: "Resets 7:40 PM (in 2h 5m)".
+- **Reset check.** A minute after any of an account's windows resets, the panel checks that account again (the same check as Refresh), once per reset, so its usage and login status are current.
+- **A Codex switch restarts Codex's app-server daemon.** Newer Codex keeps the login in a background `codex app-server daemon`, so even a new `codex` stayed on the old account. Every real switch now runs `codex app-server daemon restart` when that daemon is running, and the CLI and panel say whether it worked.
 - **Sign-in never opens a browser.** It used to open a tab in whichever browser was default, often the wrong profile. Now the link is copied with a toast ("Link copied for you. Paste it in the browser you want to sign in with.") and you paste it where you want. Claude's login runs with the browser launchers disabled; Codex's sign-in is the device-code flow (link + code, each with a Copy button).
 - **A logo** (`assets/logo.svg`): two agents passing each other, one violet and one teal. It is the page icon and sits in the top bar and at the top of the README.
 - **Sign-in link on your clipboard.** When a Codex or Claude sign-in prints its link, agent-swap copies it and a toast says so, so you can paste it into the browser profile of the account you want. The banner also has **Copy link**, and the device code has a **Copy code** button.
@@ -26,6 +30,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/). This fork tracks
 
 ### Changed
 
+- **Adding an account no longer switches to it.** A Claude sign-in switches back to the account that was in use; a Codex sign-in runs in a throwaway `CODEX_HOME`, so the live login is never touched.
 - **The project is agent-swap, and the command is `aswap`.** It switches Codex as well as Claude, so it was renamed. `agent-swap`, `cswap` and `claude-swap` still run the same program. The distribution is `agent-swap` and the repository `saurabh-awate96/agent-swap` (GitHub redirects the old URL). The Python package (`claude_swap`), the data folders, the Keychain service and the launchd label keep their old names, so no saved login or running service is orphaned.
 - **`aswap gui` can change accounts by default.** `--read-only` gives a view only. `--write` is still accepted and does nothing.
 - **Claude and Codex are equal in the web panel**: the same actions under `/api/<provider>/<action>`, pinned by a test.
