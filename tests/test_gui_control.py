@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import tempfile
 import threading
 from pathlib import Path
@@ -279,7 +280,9 @@ class TestLogin:
         kind, argv, save = parts[3].started[0]
         assert (kind, argv) == ("codex", ["/opt/bin/codex", "login", "--device-auth"])  # never opens a browser
         home = Path(parts[3].env["CODEX_HOME"])
-        assert home.is_dir() and (home.stat().st_mode & 0o777) == 0o700
+        assert home.is_dir()
+        if sys.platform != "win32":  # NTFS has no POSIX mode bits
+            assert home.stat().st_mode & 0o777 == 0o700
         (home / "auth.json").write_bytes(b"signed-in")
         assert save().startswith("Added Codex slot 2. The account in use did not change")
         assert ("add_blob", b"signed-in") in parts[1].calls and ("add",) not in parts[1].calls
