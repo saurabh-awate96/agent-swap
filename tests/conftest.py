@@ -582,6 +582,13 @@ def _no_real_codex_client(monkeypatch):
     monkeypatch.setattr("claude_swap.codex._read_rate_limits", lambda budget=None, home=None: None)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_codex_daemon(monkeypatch):
+    """No test may restart the developer's real Codex app-server daemon on a switch.
+    test_codex keeps the real function for its fake ``codex`` binary."""
+    monkeypatch.setattr("claude_swap.codex.restart_app_server", lambda: None)
+
+
 @pytest.fixture
 def temp_home(tmp_path: Path):
     """Create a temporary home directory for testing."""

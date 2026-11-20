@@ -8,14 +8,14 @@ const SENTINEL = {
   token_expired: "Token expired. It is refreshed when needed; Refresh does it now.",
   api_key: "API key: no usage limits to show.",
   keychain_unavailable: "Keychain locked or busy. Try again.",
-  relogin_required: "This login is dead. Sign in to it again (Add account).",
+  relogin_required: "This login is dead. Sign in to it again (Sign in again, in its details).",
   foreign_credential: "The live login belongs to another account. A switch repairs it.",
   no_credentials: "No stored login.",
   unavailable: "Usage unavailable right now.",
 };
 const PROBLEM = {
-  revoked: "OpenAI revoked this login. Sign in to it again (Add account).",
-  unauthorized: "OpenAI rejected this login. Sign in to it again (Add account).",
+  revoked: "OpenAI revoked this login. Sign in to it again (Sign in again, in its details).",
+  unauthorized: "OpenAI rejected this login. Sign in to it again (Sign in again, in its details).",
   failed: "Could not read this account's usage from Codex just now.",
 };
 const WARN_PCT = 70, CRIT_PCT = 90, FETCH_MS = 15000;
@@ -193,8 +193,8 @@ function limitRow(l) {
   const left = el("div");
   left.append(el("div", l.name, "name"));
   const when = l.pct == null && l.reset && l.reset <= Date.now() ? "Reset since this reading" : resetsText(l.reset);
-  const w = el("div", [when, l.extra, l.ahead ? "ahead of pace" : ""].filter(Boolean).join(" · "), "when");
-  if (l.reset) w.title = inText(l.reset);
+  const soon = l.reset ? inText(l.reset) : "";
+  const w = el("div", [when + (soon ? " (" + soon + ")" : ""), l.extra, l.ahead ? "ahead of pace" : ""].filter(Boolean).join(" | "), "when");
   left.append(w);
   const pct = el("div", null, "pct");
   if (l.pct == null) pct.textContent = "—";
@@ -209,8 +209,15 @@ function meter(l, column) {
   const top = el("span", null, l.kind === column ? "" : "other");
   // A different window in this column (a 30-day limit under "Weekly") always says what it is.
   top.append(el("span", l.kind === "session" ? "Session" : l.kind === "week" ? "Weekly" : l.kind === "month" ? l.name.replace(" limit", "") : l.name.replace("Weekly · ", ""), "lbl"),
-             l.pct == null ? el("b", "—", "dash") : el("b", Math.round(l.pct) + "%"));
+             l.pct == null ? el("b", "-", "dash") : el("b", Math.round(l.pct) + "% used"));
   box.append(top, bar(l.pct, l.line));
+  // When this window resets, so every account shows it without opening its details.
+  const soon = l.reset ? inText(l.reset) : "";
+  if (soon || l.reset) {
+    const r = el("small", soon ? "resets " + soon : "reset since this reading", "reset");
+    r.title = resetsText(l.reset);
+    box.append(r);
+  }
   return box;
 }
 
@@ -246,6 +253,11 @@ function describe(r) {
   return r && r.reason ? "Stayed: " + r.reason : "Nothing to do.";
 }
 
+function daemonNote(r) {
+  if (!r || r.daemonRestarted == null) return "";
+  return r.daemonRestarted ? " Codex's background app-server restarted onto it." : " Codex's background app-server did not restart; run `codex app-server daemon restart`.";
+}
+
 function codexNote() {
   const c = state.codex;
   if (!c || !c.running) return "";
@@ -259,7 +271,7 @@ async function act(path, body, what) {
   try {
     const r = await api(path, body, 90000);
     let text = describe(r);
-    if (/^\/api\/codex\/(switch|rotate)$/.test(path)) text = (r && r.switched ? "Switched." : "Already on it.") + codexNote();
+    if (/^\/api\/codex\/(switch|rotate)$/.test(path)) text = (r && r.switched ? "Switched." : "Already on it.") + daemonNote(r) + codexNote();
     say((what ? what + ": " : "") + text, false);
   } catch (e) {
     say((what ? what + ": " : "") + e.message, true);
@@ -364,6 +376,41 @@ async function refreshOne(m) {
   refresh();
 }
 
+// -- reset check: once a window's reset time has passed, read that account's usage and
+// login status again, so its meters and status are not left on the old window's numbers.
+
+const resetChecked = {};  // account key -> the reset time already checked for it
+
+function resetDue() {
+  const now = Date.now();
+  for (const m of allAccounts()) {
+    if (m.dead || m.apikey) continue;
+    const past = m.limits.map((l) => l.reset).filter((r) => r && r <= now - 60000);
+    if (!past.length) continue;
+    const r = Math.max(...past);
+    if ((resetChecked[keyOf(m)] || 0) < r) return [m, r];
+  }
+  return null;
+}
+
+async function resetCheck() {
+  if (busy || !writable() || loginOpen() || dlg.open) return;
+  const due = resetDue();
+  if (!due) return;
+  const [m, r] = due;
+  resetChecked[keyOf(m)] = r;
+  busy = true;
+  try {
+    const res = await api(BASE[m.p] + "/refresh", { number: m.id }, 90000);
+    res.accounts.forEach((a) => {
+      const text = NAMES[m.p] + " | " + a.label + ": limit reset, checked again: " + a.status + (a.detail ? " | " + a.detail : "");
+      if (a.ok) { log.push({ ts: clock(), text, bad: false }); if (log.length > 30) log.shift(); renderLog(); } else say(text, true);
+    });
+  } catch (e) { /* the next reset, or Refresh, tries again */ }
+  busy = false;
+  lastSig = "";
+}
+
 async function refreshAll() {
   if (busy || !writable()) return;
   busy = true;
@@ -400,6 +447,10 @@ async function editThreshold(m) {
   act(BASE[m.p] + "/threshold", { number: m.id, threshold: value }, "Threshold");
 }
 
+function reLogin(m) {
+  act(BASE[m.p] + "/login", { number: m.id }, label(m) + " | sign in again");
+}
+
 async function removeAcct(m) {
   const v = await ask({
     title: "Remove " + label(m) + "?", ok: "Remove", danger: true,
@@ -412,10 +463,10 @@ async function addAccount(only) {
   const unsavedC = state.claude && state.claude.unsaved, unsavedX = state.codex && state.codex.unsaved;
   const deadX = unsavedX && (unsavedX.problem === "revoked" || unsavedX.problem === "unauthorized");
   const choices = [
-    { id: "claude-login", p: "claude", title: "Sign in with Claude", text: "You get a link; nothing opens by itself. The login in use is saved first." },
+    { id: "claude-login", p: "claude", title: "Sign in with Claude", text: "You get a link; nothing opens by itself. The new account is saved, and you stay on the one in use." },
     { id: "claude-save", p: "claude", title: "Save the login in use", text: unsavedC ? unsavedC.email + " is not saved yet" : "Back it up or refresh its stored copy", },
     { id: "claude-token", p: "claude", title: "Use a token or API key", text: "A setup-token or Console API key" },
-    { id: "codex-login", p: "codex", title: "Sign in with ChatGPT", text: "You get a link and a code; nothing opens by itself. The login in use is saved first unless it is revoked." },
+    { id: "codex-login", p: "codex", title: "Sign in with ChatGPT", text: "You get a link and a code; nothing opens by itself. The new account is saved; the one in use does not change." },
     { id: "codex-save", p: "codex", title: "Save the login in use", text: deadX ? "Not possible: OpenAI revoked it" : unsavedX ? unsavedX.email + " is not saved yet" : "Back it up or refresh its stored copy", disabled: deadX },
     { id: "codex-key", p: "codex", title: "Use an OpenAI API key", text: "Handed to codex on its standard input" },
   ].filter((c) => !only || c.p === only);
@@ -669,7 +720,11 @@ function detail(m) {
       btn(m.disabled ? "Enable" : "Disable", "ghost small", () => doDisable(m), { disabled: lock, title: "Hold out of rotate, best and auto-switch" }),
       btn("Remove", "danger small", () => removeAcct(m), { disabled: lock }),
     );
-    if (m.dead) a.prepend(btn("Sign in again", "primary small", () => addAccount(m.p)));
+    if (!m.apikey) {
+      const again = btn("Sign in again", m.dead ? "primary small" : "ghost small", () => reLogin(m),
+                        { disabled: lock, title: "Renew this account's login without switching to it" });
+      if (m.dead) a.prepend(again); else a.insertBefore(again, a.lastChild);
+    }
     d.append(a);
   }
   return d;
@@ -782,7 +837,7 @@ async function refresh() {
 }
 
 async function loop() {
-  if (!document.hidden) await refresh();
+  if (!document.hidden) { await refresh(); await resetCheck(); }
   setTimeout(loop, ((settings && settings.pollSeconds) || 3) * 1000);
 }
 

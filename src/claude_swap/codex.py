@@ -65,6 +65,47 @@ def codex_running() -> bool:
         return False
 
 
+def _daemon_json(out: str) -> dict:
+    """The last JSON object line of a ``codex app-server daemon`` command's output."""
+    for line in reversed(out.splitlines()):
+        try:
+            msg = json.loads(line)
+        except ValueError:
+            continue
+        if isinstance(msg, dict) and "status" in msg:
+            return msg
+    return {}
+
+
+DAEMON_NOTE = {
+    True: "Restarted Codex's background app-server, so new Codex sessions use this account.",
+    False: "Could not restart Codex's background app-server; run `codex app-server daemon restart`.",
+}
+
+
+def restart_app_server() -> bool | None:
+    """Restart Codex's background app-server daemon, if one is running, so it loads
+    the login just written to auth.json (it keeps the old one in memory otherwise).
+
+    None when there is nothing to restart (no codex, no daemon, a codex too old to
+    have one); True once restarted; False when the restart failed. Best effort: the
+    switch has already happened either way.
+    """
+    binary = shutil.which("codex")
+    if binary is None or sys.platform == "win32":
+        return None
+    try:
+        probe = subprocess.run([binary, "app-server", "daemon", "version"],
+                               capture_output=True, text=True, timeout=15)
+        if probe.returncode != 0 or _daemon_json(probe.stdout).get("status") != "running":
+            return None
+        done = subprocess.run([binary, "app-server", "daemon", "restart"],
+                              capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return done.returncode == 0 and _daemon_json(done.stdout).get("status") == "restarted"
+
+
 @dataclass(frozen=True)
 class Auth:
     identity: tuple[str, str]  # (chatgpt_user_id, chatgpt_account_id)
@@ -371,6 +412,7 @@ class Codex:
         self.seq = self.root / "sequence.json"
         self.credentials_dir = self.root / "credentials"
         self._log = setup_logging(backup_root, debug=debug)
+        self.daemon_restarted: bool | None = None  # set by the last switch, see restart_app_server
         self._store = CredentialStore(
             SimpleNamespace(
                 platform=Platform.detect(),
@@ -500,15 +542,27 @@ class Codex:
 
     # -- commands ----------------------------------------------------------
 
-    def add(self, slot: int | None = None, alias: str | None = None, yes: bool = False):
-        """Store the live login in a slot. Returns ``(slot, created)``."""
+    def add(self, slot: int | None = None, alias: str | None = None, yes: bool = False,
+            blob: bytes | None = None, expect: int | None = None):
+        """Store the live login in a slot. Returns ``(slot, created)``.
+
+        ``blob`` stores a login signed in elsewhere (a throwaway CODEX_HOME) instead: the
+        account in use stays in use. A fresh sign-in replaces that slot's stored copy (a
+        revoked one, say), and when it is the account in use, auth.json gets it too. ``expect``
+        (with ``blob``): it must be the account in that slot, else nothing is saved.
+        """
         self._require_file_store()
         missing = SwitchError("No Codex login found. Run `codex login` first, then `aswap codex add`.")
-        if not self._read_live():
+        if blob is None and not self._read_live():
             raise missing
         self.root.mkdir(parents=True, exist_ok=True)
         with self._locked():
             live = self._read_live()
+            if blob is not None:
+                auth = parse_auth(blob)
+                n, created = self._add_signed_in(blob, auth, slot, alias, yes, expect)
+                self._log.info(f"Codex slot {n} {'added' if created else 'refreshed'} (signed in, not switched)")
+                return n, created
             if not live:
                 raise missing
             auth = parse_auth(live)
@@ -540,6 +594,47 @@ class Codex:
             data["activeAccountNumber"] = n
             self._save(data)
         self._log.info(f"Codex slot {n} {'added' if created else 'refreshed'}")
+        return n, created
+
+    def _add_signed_in(self, blob: bytes, auth: Auth, slot: int | None, alias: str | None,
+                       yes: bool, expect: int | None = None) -> tuple[int, bool]:
+        """``add(blob=...)`` under the lock: store ``blob``, leave the active slot alone."""
+        data = self._load()
+        n = self._match(data, auth)
+        if expect is not None and n != expect:
+            raise SwitchError(f"You signed in as {auth.email or 'another account'}, not the account in "
+                              f"Codex slot {expect}, so nothing was saved")
+        created = n is None
+        if created:
+            n = slot or max((int(k) for k in data["accounts"]), default=0) + 1
+            old = data["accounts"].get(str(n))
+            if old:
+                if not yes:
+                    raise SwitchError(f"Codex slot {n} is in use; pick another slot")
+                self._store.delete_account_credentials_strict(f"codex-{n}", old["email"])
+            data["accounts"][str(n)] = {
+                "email": auth.email,
+                "accountId": auth.identity[1],
+                "userId": auth.identity[0],
+                "plan": auth.plan,
+                "authMode": auth.mode,
+                "added": _now(),
+            }
+            data["sequence"] = sorted({*data["sequence"], n})
+        else:
+            data["accounts"][str(n)].pop("health", None)  # a fresh sign-in: not revoked any more
+        self._write_blob(n, blob, data["accounts"][str(n)]["email"])
+        live = self._read_live()
+        try:
+            same = live is not None and parse_auth(live).identity == auth.identity
+        except SwitchError:
+            same = False
+        if same:
+            atomic_write_bytes(self.live, blob, mode=0o600)
+        if alias:
+            self._check_alias(data, n, alias)
+            data["accounts"][str(n)]["alias"] = alias
+        self._save(data)
         return n, created
 
     @staticmethod
@@ -890,6 +985,7 @@ class Codex:
                     self._guard(auth, force)
                     self._capture(out, live, auth)
                     if out == t:
+                        self.daemon_restarted = None
                         if data["activeAccountNumber"] != t:
                             data["activeAccountNumber"] = t
                             self._save(data)
@@ -914,6 +1010,10 @@ class Codex:
                 self._restore(live)
                 raise SwitchError(f"Could not save the Codex account list: {e.strerror or 'I/O error'}") from None
         self._log.info(f"Codex switched to slot {t}")
+        # Before the marker: `aswap codex run` sessions restart on it and must find the new daemon.
+        self.daemon_restarted = restart_app_server()
+        if self.daemon_restarted is not None:
+            self._log.info("Codex app-server daemon " + ("restarted" if self.daemon_restarted else "restart failed"))
         self.announce_switch(t)
         return t, True
 

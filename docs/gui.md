@@ -21,7 +21,7 @@ The page has its own look: graphite neutrals and one violet accent that belong t
 
 ### Active now
 
-One card per product, Claude Code and Codex, showing the account in use (alias, email, plan chip) and its limits, written the way Claude's own usage page writes them:
+One card per product, Claude Code and Codex, showing the account in use (alias, email, plan chip) and its limits, written the way Claude's own usage page writes them, with the time left in brackets, such as "Resets 7:40 PM (in 2h 5m)":
 
 - `Current session — Resets 7:40 PM — 50% used`
 - `Weekly · all models — Resets Wed 3:30 PM — 67% used`
@@ -43,18 +43,20 @@ The card footer has:
 One table for both products, with filter tabs **All · Claude Code · Codex** (keys `1` `2` `3`). The columns are:
 
 - **Account**: an initial avatar with the product dot, the name (alias, else email), and a sub-line with the email, plan, organisation and "switches at N%".
-- **Session** and **Weekly**: a thin meter with the percentage.
+- **Session** and **Weekly**: a thin meter with the percentage used, such as "50% used", and under it when that window resets, such as "resets in 2h 5m" (hover for the clock time).
 - **Status**: a pill that reads Active, Ready, Disabled, Sign in again or Check.
 - **Actions**: **Switch** (not shown on the active account) and **More**.
 
-**More**, or a click on the row, opens the account's details under the row: every limit, notes, the last login check, and the actions **Switch**, **Refresh** (`u`), **Alias** (`a`), **Switch-away line** (`t`), **Disable** or **Enable** (`d`) and **Remove** (`x`, with a confirmation). A row briefly highlights when its numbers change.
+**More**, or a click on the row, opens the account's details under the row: every limit, notes, the last login check, and the actions **Switch**, **Refresh** (`u`), **Alias** (`a`), **Switch-away line** (`t`), **Disable** or **Enable** (`d`), **Sign in again** (renews that account's login without switching to it; a sign-in as any other account saves nothing) and **Remove** (`x`, with a confirmation). A row briefly highlights when its numbers change.
+
+A minute after any of an account's windows resets, the page checks that account again on its own (the same check as **Refresh**), once per reset, so its usage and login status are current. A fine result goes to Activity; a problem, such as a revoked login, also shows a toast. A read-only page does not do this.
 
 ### Add account
 
 **+ Add account** opens one dialog, grouped by product.
 
-- **Claude Code**: *Sign in with Claude* (an optional email pre-fills it; the login in use is saved first; no browser is opened, the link is copied for you), *Save the login in use*, and *Use a token or API key*.
-- **Codex**: *Sign in with ChatGPT* (a device-code login that opens no browser; the login in use is saved first, unless OpenAI revoked it), *Save the login in use* (disabled while the login in use is revoked), and *Use an OpenAI API key* (handed to `codex` on standard input).
+- **Claude Code**: *Sign in with Claude* (an optional email pre-fills it; the login in use is saved first and switched back to once the new account is saved; no browser is opened, the link is copied for you), *Save the login in use*, and *Use a token or API key*.
+- **Codex**: *Sign in with ChatGPT* (a device-code login that opens no browser, run in a throwaway `CODEX_HOME`, so the login in use does not change; signing in again to the account in use also hands Codex the new login), *Save the login in use* (disabled while the login in use is revoked), and *Use an OpenAI API key* (handed to `codex` on standard input).
 
 While a sign-in is open, a banner shows the product, the message, **Open the sign-in page** and **Copy link** when the client printed a link, and the device code with a **Copy code** button. The moment the link appears it is also copied to your clipboard (by the dashboard process, with `pbcopy`, `wl-copy`, `xclip`, `xsel` or `clip`, whichever exists) and a toast says so, so you can paste it into the browser profile of the account you want to sign in with. If no clipboard tool exists the toast tells you to use **Copy link**.
 
@@ -128,7 +130,7 @@ The sign-in starts `claude auth login [--email]` for Claude, and `codex login --
 
 - **Accounts** are named by slot **number** (digits only, up to three), never by email, alias, path or command.
 - **Settings** are limited to four keys for Claude (`autoswitch.threshold`, `.weeklyThreshold`, `.strategy`, `.keepalive`) and to `autoswitch.threshold` for Codex. Values go through the same validation as `aswap config set`.
-- **Sign-in** runs one fixed command without a shell and with no input. The only variable part is an optional email, checked against the same pattern `aswap add` uses. Signing in replaces the login in use, so an unsaved one is **saved first**, and the sign-in is refused if that save fails. The command's output is read only for the sign-in link (https only) and the device code, which the page shows if no browser window opened; the link is copied to the clipboard (text only, never a command). While a sign-in is open, other changes answer `409`; auto-switch and its settings stay available. The process is stopped after five minutes, and the new login is saved only if it exited cleanly.
+- **Sign-in** runs one fixed command without a shell and with no input. The only variable part is an optional email, checked against the same pattern `aswap add` uses. A Claude sign-in replaces the login in use, so an unsaved one is **saved first** (the sign-in is refused if that save fails) and is switched back to after the new account is saved. A Codex sign-in runs in a throwaway `CODEX_HOME` and never touches `auth.json` of another account. The command's output is read only for the sign-in link (https only) and the device code, which the page shows if no browser window opened; the link is copied to the clipboard (text only, never a command). While a sign-in is open, other changes answer `409`; auto-switch and its settings stay available. The process is stopped after five minutes, and the new login is saved only if it exited cleanly.
 - **Tokens** are taken from the request body. They are never logged, and they are removed from any message sent back.
 - **Writes** run one at a time; a second one answers `409`.
 - **No endpoint returns a token or credential.** The page receives emails, aliases, plans and percentages.

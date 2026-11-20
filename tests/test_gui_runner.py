@@ -44,6 +44,28 @@ class TestLoginJob:
         job.start("claude", [sys.executable, "-c", "import time; time.sleep(30)"], lambda: "x", timeout=0.5)
         assert "No sign-in" in wait_for(job, "error")["message"]
 
+    def test_extra_env_reaches_the_login_and_cleanup_always_runs(self, tmp_path):
+        job, cleaned = LoginJob(), []
+        out = tmp_path / "seen"
+        code = f"import os; open({str(out)!r}, 'w').write(os.environ['CODEX_HOME'])"
+        job.start("codex", [sys.executable, "-c", code], lambda: "saved",
+                  env={"CODEX_HOME": "/somewhere/else"}, cleanup=lambda: cleaned.append(1))
+        wait_for(job, "done")
+        assert out.read_text() == "/somewhere/else"
+        end = time.time() + 5
+        while not cleaned and time.time() < end:
+            time.sleep(0.02)
+        assert cleaned == [1]
+
+    def test_cleanup_runs_after_a_failed_login_too(self):
+        job, cleaned = LoginJob(), []
+        job.start("codex", [sys.executable, "-c", "raise SystemExit(2)"], lambda: "x", cleanup=lambda: cleaned.append(1))
+        wait_for(job, "error")
+        end = time.time() + 5
+        while not cleaned and time.time() < end:
+            time.sleep(0.02)
+        assert cleaned == [1]
+
     def test_a_missing_program_is_reported_not_raised(self):
         job = LoginJob()
         job.start("codex", ["/nonexistent/definitely-not-here"], lambda: "x")

@@ -44,6 +44,8 @@ Refresh tokens are single use, so a login that exists in two places breaks. Do n
 
 A Codex process loads `auth.json` when it starts and keeps that account. Nothing outside the process can change it, so a plain `codex` that was already running keeps its account after a switch until it restarts.
 
+Newer Codex versions also run a background app-server daemon (`codex app-server daemon`) that holds the login in memory, so even a freshly started `codex` kept the old account. Every real switch (dashboards, `aswap codex switch`, auto-switch) now runs `codex app-server daemon restart` when that daemon is running, before the switch marker is written, and says whether it worked. Restarting the daemon interrupts work it is doing at that moment. If it fails, run `codex app-server daemon restart` yourself.
+
 `aswap codex run` closes that gap. It runs Codex as a child in the same terminal and watches a marker file that every real switch writes (from the dashboards, `aswap codex switch` or auto-switch). When the account changes, it stops Codex and starts `codex resume <session id>` on the new login: same terminal, same conversation, nothing to type.
 
 - The session is found by working directory among the rollout files written since Codex started. If none exists yet, Codex simply restarts.
